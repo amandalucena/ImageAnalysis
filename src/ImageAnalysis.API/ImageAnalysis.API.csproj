@@ -10,4 +10,9 @@
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.8" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\ImageAnalysis.Application\ImageAnalysis.Application.csproj" />
+    <ProjectReference Include="..\ImageAnalysis.Infrastructure\ImageAnalysis.Infrastructure.csproj" />
+  </ItemGroup>
+
 </Project>
