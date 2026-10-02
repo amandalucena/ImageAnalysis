@@ -1,1 +1,90 @@
 # ImageAnalysis
+
+Sistema de **análise forense de imagens** desenvolvido em **C# / .NET 9**, cujo objetivo é identificar evidências compatíveis com geração, manipulação ou edição de imagens — combinando metadados, análise JPEG/ELA, ruído e textura, copy-move, proveniência C2PA, análise visual e modelos de detecção de IA.
+
+O sistema não produz um veredito binário (`REAL`/`FAKE`). Em vez disso, apresenta **evidências, regiões suspeitas, níveis de confiança e limitações da análise**, deixando a decisão final para quem avalia o laudo.
+
+> Arquitetura completa e detalhada em [`docs/CLAUDE.md`](docs/CLAUDE.md).
+
+---
+
+## Arquitetura
+
+O projeto segue **Clean Architecture** + **Domain-Driven Design (DDD)**: as camadas internas (`Domain`, `Application`) não conhecem frameworks, bancos de dados ou bibliotecas externas. Infraestrutura e ferramentas externas (PostgreSQL, Redis, ExifTool, OpenCV, modelos de ML, C2PA) implementam as interfaces definidas pelo núcleo.
+
+```text
+Frontend → API (ASP.NET Core) → Application (casos de uso / pipeline) → Domain (entidades e regras)
+                                                                              ↑
+                                                        Infrastructure (Postgres, Redis, Storage, Queue, ferramentas externas)
+```
+
+## Estrutura de pastas
+
+```text
+ImageAnalysis/
+│
+├── ImageAnalysis.sln
+│
+├── src/
+│   ├── ImageAnalysis.API/              # Camada de apresentação (ASP.NET Core)
+│   │   ├── Controllers/                # Endpoints HTTP (upload, status, resultado)
+│   │   ├── Contracts/                  # Request/Response DTOs expostos pela API
+│   │   └── Properties/                 # launchSettings, configuração de execução
+│   │
+│   ├── ImageAnalysis.Application/      # Casos de uso e orquestração do pipeline
+│   │   ├── UseCases/                   # CreateImageAnalysis, ProcessImageAnalysis, GetAnalysisResult...
+│   │   ├── DTOs/                       # Objetos de transferência entre Application e API
+│   │   └── Pipeline/                   # Orquestração da sequência de analisadores
+│   │
+│   ├── ImageAnalysis.Domain/           # Núcleo do sistema, sem dependências externas
+│   │   ├── Entities/                   # Analysis, Finding, Evidence, ImageMetadata...
+│   │   ├── ValueObjects/               # BoundingBox, ConfidenceScore, PixelRegion...
+│   │   ├── Enums/                      # AnalysisStatus, EvidenceType
+│   │   └── Interfaces/                 # IImageAnalyzer, IAnalysisRepository, IImageStorage...
+│   │
+│   └── ImageAnalysis.Infrastructure/   # Implementações concretas das interfaces do Domain
+│       ├── Persistence/                # EF Core + repositórios PostgreSQL
+│       ├── Caching/                    # Cache Redis de dados intermediários
+│       ├── Storage/                    # Armazenamento de imagens, mapas ELA e heatmaps
+│       ├── Messaging/                  # Fila de mensagens e Analysis Worker
+│       └── ExternalTools/              # ExifTool, OpenCV, C2PA, modelos de ML
+│
+├── tests/
+│   └── ImageAnalysis.Tests/            # Testes unitários e de integração
+│
+└── docs/
+    └── CLAUDE.md                      # Documento completo da arquitetura forense
+```
+
+A regra de dependência é sempre para dentro: `API`/`Infrastructure` → `Application` → `Domain`. O `Domain` nunca referencia `Infrastructure` nem frameworks externos.
+
+## Pré-requisitos
+
+- [.NET SDK 9.0+](https://dotnet.microsoft.com/download)
+- Docker e Docker Compose (para PostgreSQL, Redis e demais serviços — ver issue de setup do ambiente)
+
+## Como executar
+
+```bash
+# Restaurar e compilar a solução
+dotnet build
+
+# Rodar a API
+dotnet run --project src/ImageAnalysis.API
+
+# Rodar os testes
+dotnet test
+```
+
+## Desenvolvimento
+
+O roadmap do projeto está organizado em milestones e issues no GitHub:
+
+- **Issues**: https://github.com/amandalucena/ImageAnalysis/issues
+- **Project board**: https://github.com/users/amandalucena/projects/2
+
+Cada milestone (`M0` a `M12`) corresponde a um módulo da arquitetura descrita em [`docs/CLAUDE.md`](docs/CLAUDE.md) (ex.: Metadata Engine, JPEG Forensics/ELA, Evidence Aggregator), e cada issue representa uma tarefa pequena e fechável dentro desse módulo.
+
+## Documentação
+
+- [`docs/CLAUDE.md`](docs/CLAUDE.md) — arquitetura completa do sistema: visão geral, pipeline de análise, ELA, Evidence Aggregator, persistência, testes e validação forense.
