@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+.git/
+.gitignore
+**/*.user
+tests/
+docs/
+README.md
+CLAUDE.md

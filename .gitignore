@@ -482,3 +482,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Object storage local (dotnet run fora do Docker)
+.storage/

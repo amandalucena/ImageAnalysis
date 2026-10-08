@@ -61,11 +61,64 @@ A regra de dependência é sempre para dentro: `API`/`Infrastructure` → `Appli
 ## Pré-requisitos
 
 - [.NET SDK 9.0+](https://dotnet.microsoft.com/download)
-- Docker e Docker Compose (para PostgreSQL, Redis e demais serviços — ver issue de setup do ambiente)
+- Docker e Docker Compose (para PostgreSQL, Redis e RabbitMQ)
 
-## Como executar
+## Como subir o ambiente
+
+O `docker-compose.yml` sobe a API e todas as dependências:
+
+| Serviço    | Uso                                      | Porta local                   |
+|------------|------------------------------------------|-------------------------------|
+| `api`      | ImageAnalysis.API                        | 8080                          |
+| `postgres` | Persistência dos resultados              | 5432                          |
+| `redis`    | Cache de dados intermediários            | 6379                          |
+| `rabbitmq` | Fila de mensagens para o Analysis Worker | 5672 (painel em 15672)        |
+
+As imagens, mapas ELA e heatmaps ficam no volume `storage-data`, montado em `/data/storage` no container da API.
 
 ```bash
+# 1. Criar o arquivo de variáveis de ambiente
+cp .env.example .env
+
+# 2. Subir tudo
+docker compose up -d --build
+
+# 3. Verificar a saúde da API e das dependências
+curl http://localhost:8080/health/live
+curl http://localhost:8080/health/ready
+```
+
+O banco `imageanalysis` é criado automaticamente pelo container do PostgreSQL na primeira execução. Painel do RabbitMQ: http://localhost:15672 (usuário e senha definidos no `.env`).
+
+```bash
+docker compose logs -f api   # acompanhar logs da API
+docker compose down          # parar (mantém os dados)
+docker compose down -v       # parar e apagar os volumes (banco, fila e storage)
+```
+
+### Variáveis de ambiente
+
+Documentadas em [`.env.example`](.env.example). A API recebe a configuração via variáveis no formato do ASP.NET Core:
+
+| Variável                       | Descrição                                   |
+|--------------------------------|---------------------------------------------|
+| `ConnectionStrings__Postgres`  | Connection string do PostgreSQL             |
+| `ConnectionStrings__Redis`     | Endereço do Redis (`host:porta`)            |
+| `ConnectionStrings__RabbitMq`  | URI AMQP do RabbitMQ                        |
+| `Storage__RootPath`            | Diretório raiz do object storage local      |
+
+### Health checks
+
+- `GET /health/live` — a API está no ar (não consulta dependências).
+- `GET /health/ready` — verifica PostgreSQL, Redis e RabbitMQ e retorna o status de cada um em JSON.
+
+## Como executar fora do Docker
+
+Para rodar a API com `dotnet run`, suba apenas as dependências; o `appsettings.Development.json` já aponta para `localhost`:
+
+```bash
+docker compose up -d postgres redis rabbitmq
+
 # Restaurar e compilar a solução
 dotnet build
 
