@@ -16,6 +16,9 @@ public sealed record AnalysisFailure
         if (string.IsNullOrWhiteSpace(message))
             throw new ArgumentException("A mensagem da falha é obrigatória.", nameof(message));
 
+        if (!Enum.IsDefined(type))
+            throw new ArgumentOutOfRangeException(nameof(type), "Tipo de falha inválido.");
+
         Type = type;
         Message = message;
     }

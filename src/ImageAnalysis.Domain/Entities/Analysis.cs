@@ -5,8 +5,9 @@ using ImageAnalysis.Domain.ValueObjects;
 namespace ImageAnalysis.Domain.Entities;
 
 /// <summary>
-/// Entidade de análise responsável por guardar o nome, a imagem analisada, o status
-/// e as datas em que o processamento começou e finalizou.
+/// Análise completa de uma imagem e raiz do agregado: controla o ciclo de vida
+/// (Pending → Processing → Completed/Failed) e é a única porta de entrada para
+/// Findings, Evidences, AnalysisResult e AnalysisFailure.
 /// </summary>
 public class Analysis : BaseEntity
 {

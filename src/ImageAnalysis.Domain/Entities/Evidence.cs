@@ -28,6 +28,12 @@ public class Evidence : BaseEntity
         if (string.IsNullOrWhiteSpace(description))
             throw new ArgumentException("A descrição da evidência é obrigatória.", nameof(description));
 
+        if (!Enum.IsDefined(strength))
+            throw new ArgumentOutOfRangeException(nameof(strength), "Força da evidência inválida.");
+
+        if (!Enum.IsDefined(direction))
+            throw new ArgumentOutOfRangeException(nameof(direction), "Direção da evidência inválida.");
+
         FindingId = findingId;
         Name = name;
         Description = description;

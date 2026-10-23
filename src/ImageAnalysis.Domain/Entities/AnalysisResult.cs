@@ -27,6 +27,12 @@ public class AnalysisResult : BaseEntity
         if (string.IsNullOrWhiteSpace(summary))
             throw new ArgumentException("O resumo do resultado é obrigatório.", nameof(summary));
 
+        if (!Enum.IsDefined(status))
+            throw new ArgumentOutOfRangeException(nameof(status), "Status do resultado inválido.");
+
+        if (!Enum.IsDefined(confidence))
+            throw new ArgumentOutOfRangeException(nameof(confidence), "Nível de confiança inválido.");
+
         AnalysisId = analysisId;
         Status = status;
         Confidence = confidence;

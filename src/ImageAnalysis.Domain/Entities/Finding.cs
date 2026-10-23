@@ -30,6 +30,9 @@ public class Finding : BaseEntity
         if (string.IsNullOrWhiteSpace(description))
             throw new ArgumentException("A descrição do achado é obrigatória.", nameof(description));
 
+        if (!Enum.IsDefined(sourceFindingType))
+            throw new ArgumentOutOfRangeException(nameof(sourceFindingType), "Analisador de origem inválido.");
+
         AnalysisId = analysisId;
         Name = name;
         SourceFindingType = sourceFindingType;
