@@ -60,6 +60,9 @@ public class Analysis : BaseEntity
     {
         EnsureStatus(AnalysisStatus.Processing);
 
+        if (Metadata is not null)
+            throw new InvalidOperationException("Os metadados desta análise já foram definidos.");
+
         Metadata = new ImageMetadata(Id, rawMetadataPath, width, height);
         return Metadata;
     }
