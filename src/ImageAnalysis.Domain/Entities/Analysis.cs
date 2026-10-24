@@ -7,7 +7,7 @@ namespace ImageAnalysis.Domain.Entities;
 /// <summary>
 /// Análise completa de uma imagem e raiz do agregado: controla o ciclo de vida
 /// (Pending → Processing → Completed/Failed) e é a única porta de entrada para
-/// Findings, Evidences, AnalysisResult e AnalysisFailure.
+/// ImageMetadata, Findings, Evidences, AnalysisResult e AnalysisFailure.
 /// </summary>
 public class Analysis : BaseEntity
 {
@@ -18,6 +18,9 @@ public class Analysis : BaseEntity
 
     // Imagem original já salva no storage antes da criação da análise.
     public ImageFile Image { get; private set; } = null!;
+
+    // Preenchido pelo Metadata Engine durante o processamento.
+    public ImageMetadata? Metadata { get; private set; }
 
     private readonly List<Finding> _findings = new();
     public IReadOnlyCollection<Finding> Findings => _findings.AsReadOnly();
@@ -51,6 +54,14 @@ public class Analysis : BaseEntity
 
         Status = AnalysisStatus.Processing;
         StartedAt = DateTime.UtcNow;
+    }
+
+    public ImageMetadata SetMetadata(string rawMetadataPath, int width, int height)
+    {
+        EnsureStatus(AnalysisStatus.Processing);
+
+        Metadata = new ImageMetadata(Id, rawMetadataPath, width, height);
+        return Metadata;
     }
 
     public Finding AddFinding(string name, SourceFindingType sourceFindingType, string description)
