@@ -1,3 +1,4 @@
+using ImageAnalysis.Application.Exceptions;
 using ImageAnalysis.Domain.Entities;
 using ImageAnalysis.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -39,6 +40,22 @@ public class AnalysisRepository : IAnalysisRepository
         if (_dbContext.Entry(analysis).State == EntityState.Detached)
             throw new InvalidOperationException("A análise deve ser obtida por GetByIdAsync antes de ser atualizada.");
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        // O xmin só é verificado quando a linha de Analyses recebe UPDATE. Operações que só
+        // inserem filhos (AddFinding, AddEvidence, SetMetadata) não alteram a raiz, então ela
+        // é marcada como modificada para que todo save confira e incremente a versão do agregado.
+        // Entry().State afeta apenas a raiz; os filhos continuam com o estado detectado.
+        var entry = _dbContext.Entry(analysis);
+        if (entry.State == EntityState.Unchanged)
+            entry.State = EntityState.Modified;
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            // Traduzida para não expor o EF Core à Application.
+            throw new ConcurrencyConflictException(analysis.Id, ex);
+        }
     }
 }

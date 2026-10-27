@@ -1,3 +1,4 @@
+using ImageAnalysis.Application.Exceptions;
 using ImageAnalysis.Domain.Entities;
 using ImageAnalysis.Domain.Enums;
 using ImageAnalysis.Domain.ValueObjects;
@@ -135,6 +136,92 @@ public class AnalysisRepositoryTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => new AnalysisRepository(dbContext).UpdateAsync(NewAnalysis()));
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DuasInstanciasAlteramMesmaAnalise_SegundaLancaConflito()
+    {
+        var analysis = NewAnalysis();
+        await using (var dbContext = _fixture.CreateDbContext())
+            await new AnalysisRepository(dbContext).AddAsync(analysis);
+
+        // Simula dois Workers que carregaram a mesma análise antes de qualquer um salvar.
+        await using var firstContext = _fixture.CreateDbContext();
+        await using var secondContext = _fixture.CreateDbContext();
+        var firstRepository = new AnalysisRepository(firstContext);
+        var secondRepository = new AnalysisRepository(secondContext);
+        var first = (await firstRepository.GetByIdAsync(analysis.Id))!;
+        var second = (await secondRepository.GetByIdAsync(analysis.Id))!;
+
+        first.Start();
+        await firstRepository.UpdateAsync(first);
+
+        second.Start();
+        var exception = await Assert.ThrowsAsync<ConcurrencyConflictException>(
+            () => secondRepository.UpdateAsync(second));
+        Assert.Equal(analysis.Id, exception.AnalysisId);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ConcorrenciaApenasComFilhosNovos_SegundaLancaConflito()
+    {
+        var analysis = NewAnalysis();
+        analysis.Start();
+        await using (var dbContext = _fixture.CreateDbContext())
+            await new AnalysisRepository(dbContext).AddAsync(analysis);
+
+        await using var firstContext = _fixture.CreateDbContext();
+        await using var secondContext = _fixture.CreateDbContext();
+        var firstRepository = new AnalysisRepository(firstContext);
+        var secondRepository = new AnalysisRepository(secondContext);
+        var first = (await firstRepository.GetByIdAsync(analysis.Id))!;
+        var second = (await secondRepository.GetByIdAsync(analysis.Id))!;
+
+        // AddFinding não altera colunas da Analysis; o conflito só é detectado
+        // porque o repositório força o UPDATE da raiz.
+        first.AddFinding("Software de edição", SourceFindingType.Metadata, "Campo Software indica Photoshop.");
+        await firstRepository.UpdateAsync(first);
+
+        second.AddFinding("Software de edição", SourceFindingType.Metadata, "Campo Software indica Photoshop.");
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(
+            () => secondRepository.UpdateAsync(second));
+
+        await using (var dbContext = _fixture.CreateDbContext())
+        {
+            var loaded = (await new AnalysisRepository(dbContext).GetByIdAsync(analysis.Id))!;
+            Assert.Single(loaded.Findings);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateAsync_SalvamentosSequenciaisNoMesmoContexto_NaoLancamConflito()
+    {
+        var analysis = NewAnalysis();
+        await using (var dbContext = _fixture.CreateDbContext())
+            await new AnalysisRepository(dbContext).AddAsync(analysis);
+
+        // O xmin lido é atualizado após cada save, então o mesmo Worker pode salvar várias vezes.
+        await using (var dbContext = _fixture.CreateDbContext())
+        {
+            var repository = new AnalysisRepository(dbContext);
+            var loaded = (await repository.GetByIdAsync(analysis.Id))!;
+
+            loaded.Start();
+            await repository.UpdateAsync(loaded);
+
+            loaded.AddFinding("Software de edição", SourceFindingType.Metadata, "Campo Software indica Photoshop.");
+            await repository.UpdateAsync(loaded);
+
+            loaded.Complete(AnalysisResultStatus.RequiresFurtherInvestigation, ConfidenceLevel.Low, "Indício de edição nos metadados.");
+            await repository.UpdateAsync(loaded);
+        }
+
+        await using (var dbContext = _fixture.CreateDbContext())
+        {
+            var loaded = (await new AnalysisRepository(dbContext).GetByIdAsync(analysis.Id))!;
+            Assert.Equal(AnalysisStatus.Completed, loaded.Status);
+            Assert.Single(loaded.Findings);
+        }
     }
 
     private static Analysis NewAnalysis()
