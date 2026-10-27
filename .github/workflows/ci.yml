@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Um novo push na mesma branch/PR cancela a execução anterior.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+
+jobs:
+  build-and-test:
+    name: Build e testes
+    # ubuntu-latest já tem Docker, usado pelos testes de integração (Testcontainers).
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      # Sem packages.lock.json, a chave do cache é o conjunto de .csproj.
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.NUGET_PACKAGES }}
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '.config/dotnet-tools.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release -warnaserror
+
+      # Falha se as configurations do EF mudaram sem uma migration correspondente.
+      - name: Verificar migrations pendentes
+        run: >
+          dotnet ef migrations has-pending-model-changes
+          --project src/ImageAnalysis.Infrastructure
+          --startup-project src/ImageAnalysis.API
+          --configuration Release
+          --no-build
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release --verbosity normal
