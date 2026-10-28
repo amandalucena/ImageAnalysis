@@ -1,4 +1,5 @@
 using ImageAnalysis.Domain.Entities;
+using ImageAnalysis.Domain.ValueObjects;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -13,8 +14,7 @@ public class AnalysisConfiguration : IEntityTypeConfiguration<Analysis>
         builder.HasKey(a => a.Id);
 
         builder.Property(a => a.Name)
-            .IsRequired()
-            .HasMaxLength(200);
+            .HasMaxLength(Analysis.MaxNameLength);
 
         builder.Property(a => a.Status)
             .HasConversion<string>()
@@ -32,7 +32,7 @@ public class AnalysisConfiguration : IEntityTypeConfiguration<Analysis>
         // Value Objects gravados como colunas da própria tabela Analyses.
         builder.OwnsOne(a => a.Image, image =>
         {
-            image.Property(i => i.OriginalFileName).HasColumnName("ImageOriginalFileName").HasMaxLength(255).IsRequired();
+            image.Property(i => i.OriginalFileName).HasColumnName("ImageOriginalFileName").HasMaxLength(ImageFile.MaxOriginalFileNameLength).IsRequired();
             image.Property(i => i.StoragePath).HasColumnName("ImageStoragePath").HasMaxLength(500).IsRequired();
             image.Property(i => i.SizeInBytes).HasColumnName("ImageSizeInBytes").IsRequired();
             image.Property(i => i.Sha256).HasColumnName("ImageSha256").HasMaxLength(64).IsFixedLength().IsRequired();

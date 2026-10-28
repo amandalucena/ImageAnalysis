@@ -41,6 +41,23 @@ public class AnalysisRepositoryTests
     }
 
     [Fact]
+    public async Task AddAsync_AnaliseSemNome_PersisteNomeNulo()
+    {
+        var analysis = NewAnalysis(name: null);
+
+        await using (var dbContext = _fixture.CreateDbContext())
+            await new AnalysisRepository(dbContext).AddAsync(analysis);
+
+        await using (var dbContext = _fixture.CreateDbContext())
+        {
+            var loaded = await new AnalysisRepository(dbContext).GetByIdAsync(analysis.Id);
+
+            Assert.NotNull(loaded);
+            Assert.Null(loaded.Name);
+        }
+    }
+
+    [Fact]
     public async Task GetByIdAsync_AnaliseInexistente_RetornaNull()
     {
         await using var dbContext = _fixture.CreateDbContext();
@@ -395,7 +412,7 @@ public class AnalysisRepositoryTests
         }
     }
 
-    private static Analysis NewAnalysis()
+    private static Analysis NewAnalysis(string? name = "Análise de teste")
     {
         var image = new ImageFile(
             originalFileName: "foto.jpg",
@@ -404,6 +421,6 @@ public class AnalysisRepositoryTests
             sha256: new string('a', 64),
             mimeType: "image/jpeg");
 
-        return new Analysis("Análise de teste", image);
+        return new Analysis(name, image);
     }
 }
