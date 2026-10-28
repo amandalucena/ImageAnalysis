@@ -13,7 +13,6 @@ public class AnalysisConfiguration : IEntityTypeConfiguration<Analysis>
         builder.HasKey(a => a.Id);
 
         builder.Property(a => a.Name)
-            .IsRequired()
             .HasMaxLength(200);
 
         builder.Property(a => a.Status)
