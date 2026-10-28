@@ -15,5 +15,7 @@ public interface IAnalysisRepository
     Task AddAsync(Analysis analysis, CancellationToken cancellationToken = default);
 
     // Grava as alterações de uma Analysis obtida por GetByIdAsync.
+    // Lança ConcurrencyConflictException se a análise foi gravada por outra operação depois
+    // da leitura; nesse caso nada é gravado e a análise precisa ser obtida de novo.
     Task UpdateAsync(Analysis analysis, CancellationToken cancellationToken = default);
 }

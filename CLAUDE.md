@@ -340,6 +340,28 @@ GET /analyses/{id}
 
 ou receber uma atualização através de WebSocket/SignalR em uma evolução futura.
 
+## 8.1 Escopo, persistência e concorrência no Worker
+
+Cada mensagem processada pelo Worker abre o seu próprio escopo de DI (`IServiceScopeFactory.CreateScope()`) e, portanto, o seu próprio `DbContext`. Um contexto nunca é compartilhado entre análises diferentes nem entre threads.
+
+```text
+Worker recebe mensagem (analysisId)
+  └── CreateScope()                  ← um DbContext por análise
+        └── ProcessImageAnalysis (Application)
+              ├── GetByIdAsync
+              ├── analisadores (podem rodar em paralelo) → devolvem Findings/Evidences
+              ├── Application aplica os resultados no agregado
+              └── UpdateAsync                  ← escrita sequencial, num único contexto
+```
+
+Regras:
+
+* Os analisadores (`IImageAnalyzer`) **não acessam o banco nem repositórios**. Eles apenas produzem evidências; a Application é quem carrega, aplica os resultados no agregado `Analysis` e persiste.
+* Não se deve abrir um escopo por analisador para escrever no mesmo agregado: o token de concorrência (`xmin`) vale para o agregado inteiro, e escritas paralelas na mesma `Analysis` gerariam conflitos em todo processamento.
+* Dados intermediários trocados entre analisadores (ex.: mapa ELA → regiões suspeitas) ficam no Redis ou no storage, não no `DbContext`.
+* A `ConcurrencyConflictException` existe para detectar um caso excepcional: duas execuções processando a mesma análise (ex.: reentrega da mensagem pela fila). Após o conflito, o retry deve recarregar a análise com `GetByIdAsync`.
+* Em caso de conflito, o repositório limpa o change tracker do contexto. Isso só é seguro porque o contexto pertence a uma única unidade de trabalho.
+
 ---
 
 # 9. Metadata Engine
