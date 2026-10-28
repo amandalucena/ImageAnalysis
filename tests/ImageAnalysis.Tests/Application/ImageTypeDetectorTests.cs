@@ -1,3 +1,5 @@
+using ImageAnalysis.Application.Service;
+
 namespace ImageAnalysis.Tests.Application;
 
 public class ImageTypeDetectorTests

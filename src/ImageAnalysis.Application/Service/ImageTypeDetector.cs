@@ -1,16 +1,11 @@
-using ImageAnalysis.Domain.Interfaces;
+namespace ImageAnalysis.Application.Service;
 
-public class ImageTypeDetector
+/// <summary>
+/// Identifica o tipo da imagem pelos bytes iniciais (assinatura do formato), sem confiar
+/// na extensão do nome do arquivo. Não acessa banco nem storage.
+/// </summary>
+public static class ImageTypeDetector
 {
-    private readonly IAnalysisRepository _analysisRepository;
-    private readonly IImageStorage _imageStorage;
-
-    public ImageTypeDetector(IAnalysisRepository analysisRepository, IImageStorage imageStorage)
-    {
-        _analysisRepository = analysisRepository;
-        _imageStorage = imageStorage;
-    }
-
     //Le os primeiros bytes e devolve o MIME para a extensão do arquivo. Null para tipo desconhecido
     public static string? GetMimeTypeFromBytes(byte[] fileBytes)
     {
