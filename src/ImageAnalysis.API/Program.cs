@@ -1,4 +1,5 @@
 using HealthChecks.UI.Client;
+using ImageAnalysis.API.ErrorHandling;
 using ImageAnalysis.Application;
 using ImageAnalysis.Infrastructure;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -11,6 +12,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+
+// Erros no formato ProblemDetails (RFC 7807), sem expor detalhes internos.
+builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 
 var postgresConnectionString = builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException("ConnectionStrings:Postgres não configurada.");
@@ -37,6 +42,9 @@ builder.Services.AddHealthChecks()
 
 var app = builder.Build();
 
+// Primeiro do pipeline, para capturar exceções de todas as etapas seguintes.
+app.UseExceptionHandler();
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -60,3 +68,6 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 });
 
 app.Run();
+
+// Expõe a classe gerada pelos top-level statements para o WebApplicationFactory dos testes.
+public partial class Program;

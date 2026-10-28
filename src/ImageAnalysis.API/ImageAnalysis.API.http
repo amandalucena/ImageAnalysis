@@ -1,6 +1,23 @@
 @ImageAnalysis.API_HostAddress = http://localhost:5259
 
-GET {{ImageAnalysis.API_HostAddress}}/weatherforecast/
+### Cria uma análise a partir de uma imagem (troque o caminho por uma imagem JPEG ou PNG local)
+POST {{ImageAnalysis.API_HostAddress}}/analyses
+Content-Type: multipart/form-data; boundary=ImageAnalysisBoundary
+
+--ImageAnalysisBoundary
+Content-Disposition: form-data; name="Name"
+
+Análise de teste
+--ImageAnalysisBoundary
+Content-Disposition: form-data; name="File"; filename="foto.jpg"
+Content-Type: image/jpeg
+
+< ./caminho/para/foto.jpg
+--ImageAnalysisBoundary--
+
+### Consulta o status de uma análise (troque pelo id devolvido no POST)
+@analysisId = 00000000-0000-0000-0000-000000000000
+GET {{ImageAnalysis.API_HostAddress}}/analyses/{{analysisId}}
 Accept: application/json
 
 ###
