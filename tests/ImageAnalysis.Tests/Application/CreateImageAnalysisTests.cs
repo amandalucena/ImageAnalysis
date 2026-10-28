@@ -1,7 +1,9 @@
 using System.Security.Cryptography;
 using ImageAnalysis.Application.Exceptions;
 using ImageAnalysis.Application.UseCases.CreateImageAnalysis;
+using ImageAnalysis.Domain.Entities;
 using ImageAnalysis.Domain.Enums;
+using ImageAnalysis.Domain.ValueObjects;
 using ImageAnalysis.Tests.Application.Fakes;
 
 namespace ImageAnalysis.Tests.Application;
@@ -108,6 +110,64 @@ public class CreateImageAnalysisTests
         await Assert.ThrowsAsync<InvalidImageException>(() => Execute(null, originalFileName, JpegBytes));
 
         AssertNothingSaved();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_NomeDoArquivoAcimaDoLimite_RejeitaSemGravarNada()
+    {
+        var fileName = new string('a', ImageFile.MaxOriginalFileNameLength) + ".jpg";
+
+        await Assert.ThrowsAsync<InvalidImageException>(() => Execute(null, fileName, JpegBytes));
+
+        AssertNothingSaved();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_NomeDaAnaliseAcimaDoLimite_RejeitaSemGravarNada()
+    {
+        var name = new string('a', Analysis.MaxNameLength + 1);
+
+        await Assert.ThrowsAsync<InvalidImageException>(() => Execute(name, "foto.jpg", JpegBytes));
+
+        AssertNothingSaved();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_NomeDaAnaliseNoLimiteComEspacosNasPontas_Aceita()
+    {
+        var name = $"  {new string('a', Analysis.MaxNameLength)}  ";
+
+        await Execute(name, "foto.jpg", JpegBytes);
+
+        Assert.Equal(Analysis.MaxNameLength, Assert.Single(_repository.Analyses).Name!.Length);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_StreamSemSeek_CopiaEGravaConteudoCompleto()
+    {
+        var useCase = new CreateImageAnalysis(_storage, _repository);
+
+        await useCase.ExecuteAsync(new CreateImageAnalysisCommand(null, "foto.jpg", new NonSeekableStream(JpegBytes)));
+
+        var analysis = Assert.Single(_repository.Analyses);
+        Assert.Equal(JpegBytes, Assert.Single(_storage.Files).Value);
+        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(JpegBytes)), analysis.Image.Sha256);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_StreamForaDoInicio_ProcessaConteudoCompleto()
+    {
+        var content = new MemoryStream(JpegBytes) { Position = 5 };
+
+        await new CreateImageAnalysis(_storage, _repository)
+            .ExecuteAsync(new CreateImageAnalysisCommand(null, "foto.jpg", content));
+
+        Assert.Equal(JpegBytes, Assert.Single(_storage.Files).Value);
+    }
+
+    private sealed class NonSeekableStream(byte[] buffer) : MemoryStream(buffer)
+    {
+        public override bool CanSeek => false;
     }
 
     private Task<CreateImageAnalysisResult> Execute(string? name, string originalFileName, byte[] content)

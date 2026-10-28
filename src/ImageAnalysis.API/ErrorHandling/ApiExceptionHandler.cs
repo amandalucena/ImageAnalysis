@@ -45,11 +45,20 @@ public class ApiExceptionHandler : IExceptionHandler
 
         httpContext.Response.StatusCode = problem.Status!.Value;
 
-        return await _problemDetailsService.TryWriteAsync(new ProblemDetailsContext
+        var written = await _problemDetailsService.TryWriteAsync(new ProblemDetailsContext
         {
             HttpContext = httpContext,
             ProblemDetails = problem,
             Exception = exception,
         });
+
+        // O writer padrão recusa quando o Accept do cliente não inclui JSON (ex.: text/html).
+        // Retornar false faria o middleware tratar a exceção como não tratada e responder 500;
+        // a resposta é escrita como JSON mesmo assim, mantendo o status correto.
+        if (!written)
+            await httpContext.Response.WriteAsJsonAsync(
+                problem, options: null, contentType: "application/problem+json", cancellationToken);
+
+        return true;
     }
 }

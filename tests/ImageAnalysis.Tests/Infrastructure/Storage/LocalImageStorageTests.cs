@@ -72,6 +72,38 @@ public class LocalImageStorageTests : IDisposable
     }
 
     [Fact]
+    public async Task SaveAsync_FalhaDuranteACopia_RemovePastaCriadaParaAGravacao()
+    {
+        var uploadId = Guid.NewGuid();
+
+        await Assert.ThrowsAsync<IOException>(
+            () => _storage.SaveAsync($"uploads/{uploadId}/original.jpg", new FailingStream()));
+
+        Assert.False(Directory.Exists(Path.Combine(_rootPath, "uploads", uploadId.ToString())));
+    }
+
+    [Fact]
+    public async Task SaveAsync_ChaveExistente_MantemPastaComOriginal()
+    {
+        var key = $"uploads/{Guid.NewGuid()}/original.jpg";
+        await _storage.SaveAsync(key, new MemoryStream([1, 2, 3]));
+
+        await Assert.ThrowsAsync<IOException>(() => _storage.SaveAsync(key, new MemoryStream([9])));
+
+        Assert.True(await _storage.ExistsAsync(key));
+    }
+
+    [Theory]
+    [InlineData("..cache/original.png")]
+    [InlineData("uploads/..arquivo.jpg")]
+    public async Task SaveAsync_NomeComecandoComDoisPontosDentroDaRaiz_Aceita(string key)
+    {
+        await _storage.SaveAsync(key, new MemoryStream([1, 2, 3]));
+
+        Assert.True(await _storage.ExistsAsync(key));
+    }
+
+    [Fact]
     public async Task ExistsAsync_ChaveInexistente_RetornaFalse()
     {
         Assert.False(await _storage.ExistsAsync($"uploads/{Guid.NewGuid()}/original.jpg"));

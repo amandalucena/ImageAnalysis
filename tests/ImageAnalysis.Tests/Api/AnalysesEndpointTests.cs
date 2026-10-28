@@ -99,6 +99,20 @@ public class AnalysesEndpointTests
     }
 
     [Fact]
+    public async Task Post_ImagemInvalidaComAcceptHtml_Retorna400()
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/analyses")
+        {
+            Content = Form("%PDF-1.7 conteudo"u8.ToArray(), "foto.jpg"),
+        };
+        request.Headers.Accept.ParseAdd("text/html");
+
+        var response = await _client.SendAsync(request);
+
+        AssertProblem(response, HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task Post_ArquivoVazio_Retorna400()
     {
         var response = await _client.PostAsync("/analyses", Form([], "foto.jpg"));
@@ -113,6 +127,18 @@ public class AnalysesEndpointTests
         JpegBytes.CopyTo(content, 0);
 
         var response = await _client.PostAsync("/analyses", Form(content, "grande.jpg"));
+
+        AssertProblem(response, HttpStatusCode.RequestEntityTooLarge);
+    }
+
+    // Acima do limite da requisição: barrada pelo Content-Length antes da leitura do formulário.
+    [Fact]
+    public async Task Post_RequisicaoAcimaDoLimiteDoFormulario_Retorna413()
+    {
+        var content = new byte[UploadLimits.MaxRequestSizeInBytes + 1];
+        JpegBytes.CopyTo(content, 0);
+
+        var response = await _client.PostAsync("/analyses", Form(content, "enorme.jpg"));
 
         AssertProblem(response, HttpStatusCode.RequestEntityTooLarge);
     }

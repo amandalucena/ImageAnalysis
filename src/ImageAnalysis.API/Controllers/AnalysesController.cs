@@ -1,4 +1,5 @@
 using ImageAnalysis.API.Contracts;
+using ImageAnalysis.API.Filters;
 using ImageAnalysis.Application.UseCases.CreateImageAnalysis;
 using ImageAnalysis.Application.UseCases.GetAnalysisStatus;
 using Microsoft.AspNetCore.Mvc;
@@ -18,6 +19,7 @@ public class AnalysesController : ControllerBase
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(UploadLimits.MaxRequestSizeInBytes)]
     [RequestFormLimits(MultipartBodyLengthLimit = UploadLimits.MaxRequestSizeInBytes)]
+    [RejectOversizedRequest(UploadLimits.MaxRequestSizeInBytes)]
     [ProducesResponseType<CreateAnalysisResponse>(StatusCodes.Status202Accepted)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status413PayloadTooLarge)]

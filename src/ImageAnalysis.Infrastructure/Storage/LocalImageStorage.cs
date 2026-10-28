@@ -23,21 +23,34 @@ public class LocalImageStorage : IImageStorage
         ArgumentNullException.ThrowIfNull(content);
 
         var fullPath = ResolvePath(key);
-        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-
-        // CreateNew falha se o arquivo já existir: a imagem original nunca é sobrescrita,
-        // sem a janela de corrida de verificar a existência antes de criar.
-        await using var file = new FileStream(fullPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        var directory = Path.GetDirectoryName(fullPath)!;
+        var createdDirectory = !Directory.Exists(directory);
+        Directory.CreateDirectory(directory);
 
         try
         {
-            await content.CopyToAsync(file, cancellationToken);
+            // CreateNew falha se o arquivo já existir: a imagem original nunca é sobrescrita,
+            // sem a janela de corrida de verificar a existência antes de criar.
+            await using var file = new FileStream(fullPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+
+            try
+            {
+                await content.CopyToAsync(file, cancellationToken);
+            }
+            catch
+            {
+                // Não deixa um arquivo incompleto que bloquearia uma nova tentativa com a mesma chave.
+                await file.DisposeAsync();
+                File.Delete(fullPath);
+                throw;
+            }
         }
         catch
         {
-            // Não deixa um arquivo incompleto que bloquearia uma nova tentativa com a mesma chave.
-            await file.DisposeAsync();
-            File.Delete(fullPath);
+            // Remove a pasta criada para esta gravação se ela ficou vazia (ex.: uploads/{id}/).
+            if (createdDirectory && !Directory.EnumerateFileSystemEntries(directory).Any())
+                Directory.Delete(directory);
+
             throw;
         }
     }
@@ -54,7 +67,12 @@ public class LocalImageStorage : IImageStorage
         var fullPath = Path.GetFullPath(Path.Combine(_rootPath, key));
         var relativePath = Path.GetRelativePath(_rootPath, fullPath);
 
-        if (relativePath == "." || relativePath.StartsWith("..") || Path.IsPathRooted(relativePath))
+        // Compara o primeiro segmento com "..": um nome como "..cache" continua dentro da raiz.
+        var escapesRoot = relativePath == ".."
+            || relativePath.StartsWith(".." + Path.DirectorySeparatorChar)
+            || relativePath.StartsWith(".." + Path.AltDirectorySeparatorChar);
+
+        if (relativePath == "." || escapesRoot || Path.IsPathRooted(relativePath))
             throw new ArgumentException($"A chave '{key}' aponta para fora do storage.", nameof(key));
 
         return fullPath;

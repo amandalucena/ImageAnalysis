@@ -1,7 +1,8 @@
 namespace ImageAnalysis.Application.Exceptions;
 
 /// <summary>
-/// O arquivo enviado não pode ser aceito para análise (vazio, sem nome ou de tipo não suportado).
+/// O envio não pode ser aceito para análise (arquivo vazio, sem nome, de tipo não suportado
+/// ou com nome acima do limite).
 /// A mensagem é segura para exibição ao usuário.
 /// </summary>
 public class InvalidImageException : Exception

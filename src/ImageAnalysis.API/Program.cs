@@ -23,9 +23,13 @@ var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
     ?? throw new InvalidOperationException("ConnectionStrings:Redis não configurada.");
 var rabbitMqConnectionString = builder.Configuration.GetConnectionString("RabbitMq")
     ?? throw new InvalidOperationException("ConnectionStrings:RabbitMq não configurada.");
-var storageRootPath = builder.Configuration["Storage:RootPath"];
-if (string.IsNullOrWhiteSpace(storageRootPath))
+var configuredStorageRootPath = builder.Configuration["Storage:RootPath"];
+if (string.IsNullOrWhiteSpace(configuredStorageRootPath))
     throw new InvalidOperationException("Storage:RootPath não configurado.");
+
+// Caminho relativo é resolvido a partir do content root (pasta do projeto), e não do diretório
+// em que o processo foi iniciado, para que API e Worker apontem para a mesma pasta.
+var storageRootPath = Path.GetFullPath(configuredStorageRootPath, builder.Environment.ContentRootPath);
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(postgresConnectionString, storageRootPath);
@@ -41,6 +45,8 @@ builder.Services.AddHealthChecks()
     .AddRabbitMQ(name: "rabbitmq", tags: ["ready"]);
 
 var app = builder.Build();
+
+app.Logger.LogInformation("Storage de imagens em {StorageRootPath}", storageRootPath);
 
 // Primeiro do pipeline, para capturar exceções de todas as etapas seguintes.
 app.UseExceptionHandler();

@@ -24,6 +24,10 @@ namespace ImageAnalysis.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // O defaultValue não preenche as linhas existentes: sem isso, o SET NOT NULL falha
+            // assim que houver alguma análise criada sem nome.
+            migrationBuilder.Sql("UPDATE \"Analyses\" SET \"Name\" = '' WHERE \"Name\" IS NULL;");
+
             migrationBuilder.AlterColumn<string>(
                 name: "Name",
                 table: "Analyses",

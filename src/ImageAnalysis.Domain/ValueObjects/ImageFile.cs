@@ -7,6 +7,8 @@ namespace ImageAnalysis.Domain.ValueObjects;
 /// </summary>
 public sealed record ImageFile
 {
+    public const int MaxOriginalFileNameLength = 255;
+
     public string OriginalFileName { get; }
     public string StoragePath { get; }
     public long SizeInBytes { get; }
@@ -21,6 +23,10 @@ public sealed record ImageFile
     {
         if (string.IsNullOrWhiteSpace(originalFileName))
             throw new ArgumentException("O nome original do arquivo é obrigatório.", nameof(originalFileName));
+
+        if (originalFileName.Length > MaxOriginalFileNameLength)
+            throw new ArgumentException(
+                $"O nome original do arquivo deve ter no máximo {MaxOriginalFileNameLength} caracteres.", nameof(originalFileName));
 
         if (string.IsNullOrWhiteSpace(storagePath))
             throw new ArgumentException("O caminho da imagem no storage é obrigatório.", nameof(storagePath));

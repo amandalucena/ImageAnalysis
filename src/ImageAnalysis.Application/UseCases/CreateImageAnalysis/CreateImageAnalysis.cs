@@ -39,33 +39,52 @@ public class CreateImageAnalysis
         if (string.IsNullOrWhiteSpace(command.OriginalFileName))
             throw new InvalidImageException("O nome do arquivo enviado é obrigatório.");
 
-        // O stream do upload normalmente não permite voltar ao início, e o conteúdo é lido três
-        // vezes (detecção, hash e gravação). Com o limite de upload de 20 MB, cabe em memória.
-        using var buffer = new MemoryStream();
-        await command.Content.CopyToAsync(buffer, cancellationToken);
+        // Os limites também são invariantes do domínio; verificados aqui para virarem erro de
+        // validação (400) antes de qualquer gravação, em vez de ArgumentException (500).
+        if (command.OriginalFileName.Length > ImageFile.MaxOriginalFileNameLength)
+            throw new InvalidImageException(
+                $"O nome do arquivo enviado deve ter no máximo {ImageFile.MaxOriginalFileNameLength} caracteres.");
 
-        if (buffer.Length == 0)
+        if (command.Name?.Trim().Length > Analysis.MaxNameLength)
+            throw new InvalidImageException($"O nome da análise deve ter no máximo {Analysis.MaxNameLength} caracteres.");
+
+        // O conteúdo é lido três vezes (detecção, hash e gravação), então o stream precisa permitir
+        // voltar ao início. O upload do ASP.NET já chega bufferizado e é reaproveitado sem cópia;
+        // só um stream sem Seek é copiado para memória.
+        await using var copy = command.Content.CanSeek ? null : new MemoryStream();
+        var content = command.Content;
+
+        if (copy is not null)
+        {
+            await command.Content.CopyToAsync(copy, cancellationToken);
+            content = copy;
+        }
+
+        if (content.Length == 0)
             throw new InvalidImageException("O arquivo enviado está vazio.");
 
-        var signature = buffer.GetBuffer().AsSpan(0, (int)Math.Min(SignatureLength, buffer.Length)).ToArray();
+        var signature = new byte[Math.Min(SignatureLength, content.Length)];
+        content.Position = 0;
+        await content.ReadExactlyAsync(signature, cancellationToken);
         var mimeType = ImageTypeDetector.GetMimeTypeFromBytes(signature);
 
         if (mimeType is null || !SupportedTypes.TryGetValue(mimeType, out var extension))
             throw new InvalidImageException("Tipo de arquivo não suportado. Envie uma imagem JPEG ou PNG.");
 
-        var sha256 = await ImageHasher.ComputeSha256Async(buffer, cancellationToken);
+        // Devolve o stream no início, para que a gravação use exatamente os bytes do hash.
+        var sha256 = await ImageHasher.ComputeSha256Async(content, cancellationToken);
 
         // O id do upload só compõe a chave no storage; a Analysis tem o próprio id.
         var storageKey = $"uploads/{Guid.NewGuid()}/original{extension}";
 
         // A Analysis é montada antes da gravação para que uma falha de validação do domínio
         // não deixe um arquivo órfão no storage.
-        var image = new ImageFile(command.OriginalFileName, storageKey, buffer.Length, sha256, mimeType);
+        var image = new ImageFile(command.OriginalFileName, storageKey, content.Length, sha256, mimeType);
         var analysis = new Analysis(command.Name, image);
 
         // Storage antes do banco: se o banco falhar, sobra um arquivo órfão, o que é preferível
         // a uma análise apontando para uma imagem inexistente.
-        await _imageStorage.SaveAsync(storageKey, buffer, cancellationToken);
+        await _imageStorage.SaveAsync(storageKey, content, cancellationToken);
         await _analysisRepository.AddAsync(analysis, cancellationToken);
 
         return new CreateImageAnalysisResult(analysis.Id);

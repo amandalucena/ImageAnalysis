@@ -36,6 +36,24 @@ public class AnalysisTests
     }
 
     [Fact]
+    public void Construtor_NomeNoLimiteAposRemoverEspacos_Aceita()
+    {
+        var name = $"  {new string('a', Analysis.MaxNameLength)}  ";
+
+        var analysis = new Analysis(name, NewImage());
+
+        Assert.Equal(Analysis.MaxNameLength, analysis.Name!.Length);
+    }
+
+    [Fact]
+    public void Construtor_NomeAcimaDoLimite_LancaExcecao()
+    {
+        var name = new string('a', Analysis.MaxNameLength + 1);
+
+        Assert.Throws<ArgumentException>(() => new Analysis(name, NewImage()));
+    }
+
+    [Fact]
     public void Construtor_SemImagem_LancaExcecao()
     {
         Assert.Throws<ArgumentNullException>(() => new Analysis("Análise de teste", null!));

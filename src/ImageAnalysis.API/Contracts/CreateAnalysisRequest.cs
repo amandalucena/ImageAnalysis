@@ -10,7 +10,6 @@ public sealed class CreateAnalysisRequest
     [Required(ErrorMessage = "O arquivo da imagem é obrigatório.")]
     public IFormFile? File { get; init; }
 
-    // Mesmo limite da coluna Analyses.Name.
-    [MaxLength(200, ErrorMessage = "O nome da análise deve ter no máximo 200 caracteres.")]
+    // O limite de tamanho é validado no caso de uso, depois de remover os espaços das pontas.
     public string? Name { get; init; }
 }

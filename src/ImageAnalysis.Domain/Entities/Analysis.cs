@@ -11,6 +11,8 @@ namespace ImageAnalysis.Domain.Entities;
 /// </summary>
 public class Analysis : BaseEntity
 {
+    public const int MaxNameLength = 200;
+
     // Opcional: informado pelo usuário no upload.
     public string? Name { get; private set; }
     public AnalysisStatus Status { get; private set; }
@@ -42,7 +44,12 @@ public class Analysis : BaseEntity
         ArgumentNullException.ThrowIfNull(image);
 
         // Texto em branco é tratado como ausência de nome.
-        Name = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+        var normalizedName = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+
+        if (normalizedName?.Length > MaxNameLength)
+            throw new ArgumentException($"O nome da análise deve ter no máximo {MaxNameLength} caracteres.", nameof(name));
+
+        Name = normalizedName;
         Image = image;
         Status = AnalysisStatus.Pending;
     }
