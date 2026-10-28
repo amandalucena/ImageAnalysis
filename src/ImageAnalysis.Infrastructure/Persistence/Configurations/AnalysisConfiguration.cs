@@ -24,6 +24,11 @@ public class AnalysisConfiguration : IEntityTypeConfiguration<Analysis>
         builder.Property(a => a.StartedAt);
         builder.Property(a => a.FinishedAt);
 
+        // Concorrência otimista: a coluna de sistema xmin do PostgreSQL muda a cada UPDATE
+        // na linha, então serve de token sem coluna nova. Vale para o agregado inteiro,
+        // porque o AnalysisRepository sempre atualiza a raiz ao salvar.
+        builder.Property<uint>("xmin").IsRowVersion();
+
         // Value Objects gravados como colunas da própria tabela Analyses.
         builder.OwnsOne(a => a.Image, image =>
         {
