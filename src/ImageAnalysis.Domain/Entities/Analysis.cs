@@ -11,7 +11,8 @@ namespace ImageAnalysis.Domain.Entities;
 /// </summary>
 public class Analysis : BaseEntity
 {
-    public string Name { get; private set; } = null!;
+    // Opcional: informado pelo usuário no upload.
+    public string? Name { get; private set; }
     public AnalysisStatus Status { get; private set; }
     public DateTime? StartedAt { get; private set; }
     public DateTime? FinishedAt { get; private set; }
@@ -36,14 +37,12 @@ public class Analysis : BaseEntity
     {
     }
 
-    public Analysis(string name, ImageFile image)
+    public Analysis(string? name, ImageFile image)
     {
-        if (string.IsNullOrWhiteSpace(name))
-            throw new ArgumentException("O nome da análise é obrigatório.", nameof(name));
-
         ArgumentNullException.ThrowIfNull(image);
 
-        Name = name;
+        // Texto em branco é tratado como ausência de nome.
+        Name = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
         Image = image;
         Status = AnalysisStatus.Pending;
     }
