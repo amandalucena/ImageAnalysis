@@ -1,4 +1,5 @@
 using HealthChecks.UI.Client;
+using ImageAnalysis.Application;
 using ImageAnalysis.Infrastructure;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using RabbitMQ.Client;
@@ -17,8 +18,12 @@ var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
     ?? throw new InvalidOperationException("ConnectionStrings:Redis não configurada.");
 var rabbitMqConnectionString = builder.Configuration.GetConnectionString("RabbitMq")
     ?? throw new InvalidOperationException("ConnectionStrings:RabbitMq não configurada.");
+var storageRootPath = builder.Configuration["Storage:RootPath"];
+if (string.IsNullOrWhiteSpace(storageRootPath))
+    throw new InvalidOperationException("Storage:RootPath não configurado.");
 
-builder.Services.AddInfrastructure(postgresConnectionString);
+builder.Services.AddApplication();
+builder.Services.AddInfrastructure(postgresConnectionString, storageRootPath);
 
 // Conexão RabbitMQ compartilhada (resolvida na primeira utilização).
 builder.Services.AddSingleton<IConnection>(_ =>
