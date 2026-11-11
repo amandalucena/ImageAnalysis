@@ -3,7 +3,6 @@ using ImageAnalysis.API.ErrorHandling;
 using ImageAnalysis.Application;
 using ImageAnalysis.Infrastructure;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
-using RabbitMQ.Client;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,12 +31,10 @@ if (string.IsNullOrWhiteSpace(configuredStorageRootPath))
 var storageRootPath = Path.GetFullPath(configuredStorageRootPath, builder.Environment.ContentRootPath);
 
 builder.Services.AddApplication();
-builder.Services.AddInfrastructure(postgresConnectionString, storageRootPath);
+builder.Services.AddInfrastructure(postgresConnectionString, storageRootPath, rabbitMqConnectionString);
 
-// Conexão RabbitMQ compartilhada (resolvida na primeira utilização).
-builder.Services.AddSingleton<IConnection>(_ =>
-    new ConnectionFactory { Uri = new Uri(rabbitMqConnectionString) }
-        .CreateConnectionAsync().GetAwaiter().GetResult());
+// O Worker roda em segundo plano no mesmo processo da API.
+builder.Services.AddAnalysisWorker();
 
 builder.Services.AddHealthChecks()
     .AddNpgSql(postgresConnectionString, name: "postgres", tags: ["ready"])
