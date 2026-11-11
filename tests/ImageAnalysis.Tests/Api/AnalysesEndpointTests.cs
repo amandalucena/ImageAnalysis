@@ -44,8 +44,9 @@ public class AnalysesEndpointTests
         Assert.Equal(content, await File.ReadAllBytesAsync(savedFile));
     }
 
+    // O status não é conferido aqui: o Worker pode já ter processado a análise antes do GET.
     [Fact]
-    public async Task Get_AnaliseCriadaSemNome_RetornaPendingComDadosDaImagem()
+    public async Task Get_AnaliseCriadaSemNome_RetornaDadosDaImagem()
     {
         var id = await CreateAnalysis(Form(JpegBytes, "foto.jpg"));
 
@@ -53,13 +54,23 @@ public class AnalysesEndpointTests
 
         Assert.Equal(id, status.Id);
         Assert.Null(status.Name);
-        Assert.Equal("Pending", status.Status);
         Assert.Equal("foto.jpg", status.OriginalFileName);
         Assert.Equal("image/jpeg", status.MimeType);
         Assert.Equal(JpegBytes.Length, status.SizeInBytes);
         Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(JpegBytes)), status.Sha256);
-        Assert.Null(status.StartedAt);
-        Assert.Null(status.FinishedAt);
+    }
+
+    // Ponta a ponta: POST → fila → Worker → GET com a análise concluída.
+    [Fact]
+    public async Task Post_AnaliseCriada_WorkerProcessaAteCompleted()
+    {
+        var id = await CreateAnalysis(Form(JpegBytes, "foto.jpg"));
+
+        var status = await WaitForStatus(id, "Completed", TimeSpan.FromSeconds(30));
+
+        Assert.NotNull(status.StartedAt);
+        Assert.NotNull(status.FinishedAt);
+        Assert.True(status.StartedAt <= status.FinishedAt);
     }
 
     [Fact]
@@ -177,6 +188,24 @@ public class AnalysesEndpointTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         return (await response.Content.ReadFromJsonAsync<AnalysisStatusResult>())!;
+    }
+
+    // O processamento é assíncrono, então o status é consultado até chegar ao esperado.
+    private async Task<AnalysisStatusResult> WaitForStatus(Guid id, string expected, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+
+        while (true)
+        {
+            var status = await GetStatus(id);
+            if (status.Status == expected || DateTime.UtcNow >= deadline)
+            {
+                Assert.Equal(expected, status.Status);
+                return status;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+        }
     }
 
     private static void AssertProblem(HttpResponseMessage response, HttpStatusCode expected)

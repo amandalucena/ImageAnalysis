@@ -23,6 +23,7 @@ public class AnalysesController : ControllerBase
     [ProducesResponseType<CreateAnalysisResponse>(StatusCodes.Status202Accepted)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status413PayloadTooLarge)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> Create(
         [FromForm] CreateAnalysisRequest request,
         [FromServices] CreateImageAnalysis createImageAnalysis,

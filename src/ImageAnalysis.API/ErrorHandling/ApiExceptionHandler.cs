@@ -28,6 +28,15 @@ public class ApiExceptionHandler : IExceptionHandler
                 Detail = exception.Message,
             },
 
+            // A análise foi criada e marcada como Failed; o id não é devolvido porque ela
+            // não será processada. Um novo envio cria outra análise.
+            AnalysisQueueUnavailableException => new ProblemDetails
+            {
+                Status = StatusCodes.Status503ServiceUnavailable,
+                Title = "Processamento indisponível.",
+                Detail = "Não foi possível enviar a análise para processamento. Tente novamente mais tarde.",
+            },
+
             // Lançada pelo Kestrel, ex.: corpo acima do [RequestSizeLimit] (413).
             BadHttpRequestException badRequest => new ProblemDetails
             {

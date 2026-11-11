@@ -1,14 +1,18 @@
 using ImageAnalysis.Application.Exceptions;
 using ImageAnalysis.Application.Service;
 using ImageAnalysis.Domain.Entities;
+using ImageAnalysis.Domain.Enums;
+using ImageAnalysis.Domain.Exceptions;
 using ImageAnalysis.Domain.Interfaces;
 using ImageAnalysis.Domain.ValueObjects;
+using Microsoft.Extensions.Logging;
 
 namespace ImageAnalysis.Application.UseCases.CreateImageAnalysis;
 
 /// <summary>
 /// Recebe a imagem enviada, registra sua impressão digital (SHA-256), grava o original no
-/// storage e cria a Analysis em Pending. Não processa a imagem: isso cabe ao Worker.
+/// storage, cria a Analysis em Pending e a envia para a fila. Não processa a imagem: isso
+/// cabe ao Worker.
 /// </summary>
 public class CreateImageAnalysis
 {
@@ -24,12 +28,23 @@ public class CreateImageAnalysis
     private const int SignatureLength = 8;
 
     private readonly IImageStorage _imageStorage;
-    private readonly IAnalysisRepository _analysisRepository;
+    // Tempo máximo para a fila confirmar a publicação.
+    private static readonly TimeSpan PublishTimeout = TimeSpan.FromSeconds(10);
 
-    public CreateImageAnalysis(IImageStorage imageStorage, IAnalysisRepository analysisRepository)
+    private readonly IAnalysisRepository _analysisRepository;
+    private readonly IAnalysisQueue _analysisQueue;
+    private readonly ILogger<CreateImageAnalysis> _logger;
+
+    public CreateImageAnalysis(
+        IImageStorage imageStorage,
+        IAnalysisRepository analysisRepository,
+        IAnalysisQueue analysisQueue,
+        ILogger<CreateImageAnalysis> logger)
     {
         _imageStorage = imageStorage;
         _analysisRepository = analysisRepository;
+        _analysisQueue = analysisQueue;
+        _logger = logger;
     }
 
     public async Task<CreateImageAnalysisResult> ExecuteAsync(CreateImageAnalysisCommand command, CancellationToken cancellationToken = default)
@@ -87,6 +102,51 @@ public class CreateImageAnalysis
         await _imageStorage.SaveAsync(storageKey, content, cancellationToken);
         await _analysisRepository.AddAsync(analysis, cancellationToken);
 
+        // Banco antes da fila: o Worker precisa encontrar a Analysis ao consumir a mensagem.
+        // Com a análise já gravada, a publicação não depende do cancelamento da requisição:
+        // se o cliente desistir agora, a análise ainda deve ser processada. O limite de tempo
+        // evita que uma fila sem resposta prenda a requisição.
+        try
+        {
+            using var publishTimeout = new CancellationTokenSource(PublishTimeout);
+            await _analysisQueue.PublishAsync(analysis.Id, publishTimeout.Token);
+        }
+        catch (Exception ex)
+        {
+            if (await TryMarkQueueUnavailableAsync(analysis))
+                throw new AnalysisQueueUnavailableException(analysis.Id, ex);
+
+            // O Worker já tirou a análise de Pending: a mensagem chegou à fila apesar do erro
+            // (ex.: confirmação perdida), então a publicação de fato aconteceu.
+            _logger.LogWarning(ex, "Erro ao publicar a análise {AnalysisId}, mas ela já está sendo processada.", analysis.Id);
+        }
+
         return new CreateImageAnalysisResult(analysis.Id);
+    }
+
+    // Sem a mensagem, nada processaria a análise e ela ficaria em Pending para sempre.
+    // Retorna false se a análise já saiu de Pending (o Worker a iniciou).
+    private async Task<bool> TryMarkQueueUnavailableAsync(Analysis analysis)
+    {
+        analysis.Fail(new AnalysisFailure(
+            AnalysisFailureType.QueueUnavailable,
+            "Não foi possível enviar a análise para processamento."));
+
+        try
+        {
+            await _analysisRepository.UpdateAsync(analysis, CancellationToken.None);
+            return true;
+        }
+        catch (ConcurrencyConflictException)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            // A falha da publicação continua sendo o erro devolvido; este fica no log. A análise
+            // permanece em Pending até ser recuperada.
+            _logger.LogError(ex, "Não foi possível marcar a análise {AnalysisId} como Failed.", analysis.Id);
+            return true;
+        }
     }
 }
