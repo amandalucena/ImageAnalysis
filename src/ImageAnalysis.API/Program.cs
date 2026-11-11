@@ -2,6 +2,7 @@ using HealthChecks.UI.Client;
 using ImageAnalysis.API.ErrorHandling;
 using ImageAnalysis.Application;
 using ImageAnalysis.Infrastructure;
+using ImageAnalysis.Infrastructure.Messaging;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -39,7 +40,10 @@ builder.Services.AddAnalysisWorker();
 builder.Services.AddHealthChecks()
     .AddNpgSql(postgresConnectionString, name: "postgres", tags: ["ready"])
     .AddRedis(redisConnectionString, name: "redis", tags: ["ready"])
-    .AddRabbitMQ(name: "rabbitmq", tags: ["ready"]);
+    .AddRabbitMQ(
+        sp => sp.GetRequiredService<RabbitMqConnectionProvider>().GetConnectionAsync(),
+        name: "rabbitmq",
+        tags: ["ready"]);
 
 var app = builder.Build();
 

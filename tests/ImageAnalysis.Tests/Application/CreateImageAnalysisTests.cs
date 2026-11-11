@@ -3,8 +3,10 @@ using ImageAnalysis.Application.Exceptions;
 using ImageAnalysis.Application.UseCases.CreateImageAnalysis;
 using ImageAnalysis.Domain.Entities;
 using ImageAnalysis.Domain.Enums;
+using ImageAnalysis.Domain.Exceptions;
 using ImageAnalysis.Domain.ValueObjects;
 using ImageAnalysis.Tests.Application.Fakes;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ImageAnalysis.Tests.Application;
 
@@ -43,14 +45,49 @@ public class CreateImageAnalysisTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_CancelamentoAoPublicar_MarcaAnaliseComoFailedEPropagaCancelamento()
+    public async Task ExecuteAsync_TempoEsgotadoAoPublicar_TrataComoFalhaDaFila()
     {
         _queue.PublishException = new OperationCanceledException();
 
-        await Assert.ThrowsAsync<OperationCanceledException>(() => Execute(null, "foto.jpg", JpegBytes));
+        await Assert.ThrowsAsync<AnalysisQueueUnavailableException>(() => Execute(null, "foto.jpg", JpegBytes));
 
         Assert.Equal(AnalysisStatus.Failed, Assert.Single(_repository.Analyses).Status);
-        Assert.Equal([AnalysisStatus.Failed], _repository.SavedStatuses);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_PublicacaoNaoUsaOTokenDaRequisicao()
+    {
+        using var request = new CancellationTokenSource();
+
+        await CreateUseCase().ExecuteAsync(
+            new CreateImageAnalysisCommand(null, "foto.jpg", new MemoryStream(JpegBytes)), request.Token);
+
+        Assert.NotEqual(request.Token, _queue.LastCancellationToken);
+        Assert.True(_queue.LastCancellationToken.CanBeCanceled);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_FalhaAoPublicarMasWorkerJaIniciou_RetornaIdSemMarcarFailed()
+    {
+        _queue.PublishException = new TimeoutException("Confirmação perdida.");
+        _repository.UpdateException = new ConcurrencyConflictException(Guid.NewGuid());
+
+        var result = await Execute(null, "foto.jpg", JpegBytes);
+
+        Assert.Equal(Assert.Single(_repository.Analyses).Id, result.AnalysisId);
+        Assert.Empty(_repository.SavedStatuses);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_FalhaAoPublicarEAoMarcarFailed_LancaErroDaPublicacao()
+    {
+        var publishError = new InvalidOperationException("RabbitMQ indisponível.");
+        _queue.PublishException = publishError;
+        _repository.UpdateException = new InvalidOperationException("Banco indisponível.");
+
+        var ex = await Assert.ThrowsAsync<AnalysisQueueUnavailableException>(() => Execute(null, "foto.jpg", JpegBytes));
+
+        Assert.Same(publishError, ex.InnerException);
     }
 
     [Fact]
@@ -182,7 +219,7 @@ public class CreateImageAnalysisTests
     [Fact]
     public async Task ExecuteAsync_StreamSemSeek_CopiaEGravaConteudoCompleto()
     {
-        var useCase = new CreateImageAnalysis(_storage, _repository, _queue);
+        var useCase = CreateUseCase();
 
         await useCase.ExecuteAsync(new CreateImageAnalysisCommand(null, "foto.jpg", new NonSeekableStream(JpegBytes)));
 
@@ -196,7 +233,7 @@ public class CreateImageAnalysisTests
     {
         var content = new MemoryStream(JpegBytes) { Position = 5 };
 
-        await new CreateImageAnalysis(_storage, _repository, _queue)
+        await CreateUseCase()
             .ExecuteAsync(new CreateImageAnalysisCommand(null, "foto.jpg", content));
 
         Assert.Equal(JpegBytes, Assert.Single(_storage.Files).Value);
@@ -207,9 +244,12 @@ public class CreateImageAnalysisTests
         public override bool CanSeek => false;
     }
 
+    private CreateImageAnalysis CreateUseCase() =>
+        new(_storage, _repository, _queue, NullLogger<CreateImageAnalysis>.Instance);
+
     private Task<CreateImageAnalysisResult> Execute(string? name, string originalFileName, byte[] content)
     {
-        var useCase = new CreateImageAnalysis(_storage, _repository, _queue);
+        var useCase = CreateUseCase();
         return useCase.ExecuteAsync(new CreateImageAnalysisCommand(name, originalFileName, new MemoryStream(content)));
     }
 

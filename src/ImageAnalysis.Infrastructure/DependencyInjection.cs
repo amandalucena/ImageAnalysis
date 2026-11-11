@@ -6,7 +6,6 @@ using ImageAnalysis.Infrastructure.Storage;
 using ImageAnalysis.Infrastructure.Worker;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using RabbitMQ.Client;
 
 namespace ImageAnalysis.Infrastructure;
 
@@ -30,11 +29,9 @@ public static class DependencyInjection
         // Sem estado além da pasta raiz, então uma única instância atende toda a aplicação.
         services.AddSingleton<IImageStorage>(new LocalImageStorage(storageRootPath));
 
-        // Conexão RabbitMQ compartilhada (resolvida na primeira utilização). Os canais é que
-        // são abertos por uso: um por publicação e um para o Worker.
-        services.AddSingleton<IConnection>(_ =>
-            new ConnectionFactory { Uri = new Uri(rabbitMqConnectionString) }
-                .CreateConnectionAsync().GetAwaiter().GetResult());
+        // Conexão RabbitMQ compartilhada, aberta na primeira utilização. Os canais é que são
+        // abertos por uso: um por publicação e um para o Worker.
+        services.AddSingleton(new RabbitMqConnectionProvider(rabbitMqConnectionString));
 
         services.AddSingleton<IAnalysisQueue, RabbitMqAnalysisQueue>();
 

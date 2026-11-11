@@ -11,6 +11,9 @@ public class FakeAnalysisRepository : IAnalysisRepository
     // Status de cada análise no momento de cada UpdateAsync, na ordem das chamadas.
     public List<AnalysisStatus> SavedStatuses { get; } = new();
 
+    // Token recebido por cada UpdateAsync gravado, na mesma ordem de SavedStatuses.
+    public List<CancellationToken> UpdateCancellationTokens { get; } = new();
+
     // Quando definida, UpdateAsync lança esta exceção em vez de gravar.
     public Exception? UpdateException { get; set; }
 
@@ -29,6 +32,7 @@ public class FakeAnalysisRepository : IAnalysisRepository
             throw UpdateException;
 
         SavedStatuses.Add(analysis.Status);
+        UpdateCancellationTokens.Add(cancellationToken);
         return Task.CompletedTask;
     }
 }

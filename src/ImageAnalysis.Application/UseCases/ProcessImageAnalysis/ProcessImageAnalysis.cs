@@ -51,7 +51,11 @@ public class ProcessImageAnalysis
         // Só o processamento fica no try: uma falha ao gravar não tem como ser registrada
         // na própria análise e segue para quem consumiu a mensagem.
         var outcome = Run(analysis);
-        await _analysisRepository.UpdateAsync(analysis, cancellationToken);
+
+        // CancellationToken.None: com a análise já em Processing, interromper esta gravação
+        // (ex.: encerramento do host) a deixaria presa nesse status, porque a reentrega da
+        // mensagem seria ignorada.
+        await _analysisRepository.UpdateAsync(analysis, CancellationToken.None);
 
         return outcome;
     }

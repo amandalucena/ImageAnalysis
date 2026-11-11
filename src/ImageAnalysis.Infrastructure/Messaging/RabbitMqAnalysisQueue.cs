@@ -5,20 +5,22 @@ namespace ImageAnalysis.Infrastructure.Messaging;
 
 public class RabbitMqAnalysisQueue : IAnalysisQueue
 {
-    private readonly IConnection _connection;
+    private readonly RabbitMqConnectionProvider _connectionProvider;
 
-    public RabbitMqAnalysisQueue(IConnection connection)
+    public RabbitMqAnalysisQueue(RabbitMqConnectionProvider connectionProvider)
     {
-        _connection = connection;
+        _connectionProvider = connectionProvider;
     }
 
     public async Task PublishAsync(Guid analysisId, CancellationToken cancellationToken = default)
     {
+        var connection = await _connectionProvider.GetConnectionAsync(cancellationToken);
+
         // Um canal por publicação: canais não devem ser compartilhados entre requisições
         // concorrentes, e o custo de abrir um é pequeno perto do upload da imagem.
         // Com confirmações rastreadas, BasicPublishAsync só retorna depois que o broker aceita
         // a mensagem e lança exceção se ela for recusada ou, com mandatory, não chegar a uma fila.
-        await using var channel = await _connection.CreateChannelAsync(
+        await using var channel = await connection.CreateChannelAsync(
             new CreateChannelOptions(publisherConfirmationsEnabled: true, publisherConfirmationTrackingEnabled: true),
             cancellationToken);
 

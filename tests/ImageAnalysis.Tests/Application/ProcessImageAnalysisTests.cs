@@ -40,6 +40,19 @@ public class ProcessImageAnalysisTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_GravacaoFinalNaoPodeSerCancelada()
+    {
+        var analysis = AddAnalysis();
+        using var stopping = new CancellationTokenSource();
+
+        await new ProcessImageAnalysis(_repository, NullLogger<ProcessImageAnalysis>.Instance)
+            .ExecuteAsync(new ProcessImageAnalysisCommand(analysis.Id), stopping.Token);
+
+        Assert.Equal(stopping.Token, _repository.UpdateCancellationTokens[0]);
+        Assert.False(_repository.UpdateCancellationTokens[1].CanBeCanceled);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_AnaliseInexistente_RetornaNotFoundSemGravar()
     {
         var outcome = await Execute(Guid.NewGuid());

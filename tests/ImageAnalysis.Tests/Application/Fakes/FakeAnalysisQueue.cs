@@ -9,8 +9,12 @@ public class FakeAnalysisQueue : IAnalysisQueue
     // Quando definida, PublishAsync lança esta exceção em vez de publicar.
     public Exception? PublishException { get; set; }
 
+    public CancellationToken LastCancellationToken { get; private set; }
+
     public Task PublishAsync(Guid analysisId, CancellationToken cancellationToken = default)
     {
+        LastCancellationToken = cancellationToken;
+
         if (PublishException is not null)
             throw PublishException;
 
