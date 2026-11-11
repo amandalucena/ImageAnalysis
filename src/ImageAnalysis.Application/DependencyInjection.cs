@@ -1,5 +1,6 @@
 using ImageAnalysis.Application.UseCases.CreateImageAnalysis;
 using ImageAnalysis.Application.UseCases.GetAnalysisStatus;
+using ImageAnalysis.Application.UseCases.ProcessImageAnalysis;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace ImageAnalysis.Application;
@@ -14,6 +15,7 @@ public static class DependencyInjection
         // Scoped porque dependem do IAnalysisRepository, que usa o DbContext da requisição.
         services.AddScoped<CreateImageAnalysis>();
         services.AddScoped<GetAnalysisStatus>();
+        services.AddScoped<ProcessImageAnalysis>();
 
         return services;
     }

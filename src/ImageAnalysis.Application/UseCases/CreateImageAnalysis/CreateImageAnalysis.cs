@@ -1,6 +1,7 @@
 using ImageAnalysis.Application.Exceptions;
 using ImageAnalysis.Application.Service;
 using ImageAnalysis.Domain.Entities;
+using ImageAnalysis.Domain.Enums;
 using ImageAnalysis.Domain.Interfaces;
 using ImageAnalysis.Domain.ValueObjects;
 
@@ -8,7 +9,8 @@ namespace ImageAnalysis.Application.UseCases.CreateImageAnalysis;
 
 /// <summary>
 /// Recebe a imagem enviada, registra sua impressão digital (SHA-256), grava o original no
-/// storage e cria a Analysis em Pending. Não processa a imagem: isso cabe ao Worker.
+/// storage, cria a Analysis em Pending e a envia para a fila. Não processa a imagem: isso
+/// cabe ao Worker.
 /// </summary>
 public class CreateImageAnalysis
 {
@@ -25,11 +27,13 @@ public class CreateImageAnalysis
 
     private readonly IImageStorage _imageStorage;
     private readonly IAnalysisRepository _analysisRepository;
+    private readonly IAnalysisQueue _analysisQueue;
 
-    public CreateImageAnalysis(IImageStorage imageStorage, IAnalysisRepository analysisRepository)
+    public CreateImageAnalysis(IImageStorage imageStorage, IAnalysisRepository analysisRepository, IAnalysisQueue analysisQueue)
     {
         _imageStorage = imageStorage;
         _analysisRepository = analysisRepository;
+        _analysisQueue = analysisQueue;
     }
 
     public async Task<CreateImageAnalysisResult> ExecuteAsync(CreateImageAnalysisCommand command, CancellationToken cancellationToken = default)
@@ -86,6 +90,26 @@ public class CreateImageAnalysis
         // a uma análise apontando para uma imagem inexistente.
         await _imageStorage.SaveAsync(storageKey, content, cancellationToken);
         await _analysisRepository.AddAsync(analysis, cancellationToken);
+
+        // Banco antes da fila: o Worker precisa encontrar a Analysis ao consumir a mensagem.
+        try
+        {
+            await _analysisQueue.PublishAsync(analysis.Id, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Sem a mensagem, nada processaria a análise e ela ficaria em Pending para sempre.
+            // CancellationToken.None: a falha precisa ser gravada mesmo com a requisição cancelada.
+            analysis.Fail(new AnalysisFailure(
+                AnalysisFailureType.QueueUnavailable,
+                "Não foi possível enviar a análise para processamento."));
+            await _analysisRepository.UpdateAsync(analysis, CancellationToken.None);
+
+            if (ex is OperationCanceledException)
+                throw;
+
+            throw new AnalysisQueueUnavailableException(analysis.Id, ex);
+        }
 
         return new CreateImageAnalysisResult(analysis.Id);
     }

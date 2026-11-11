@@ -15,6 +15,43 @@ public class CreateImageAnalysisTests
 
     private readonly FakeImageStorage _storage = new();
     private readonly FakeAnalysisRepository _repository = new();
+    private readonly FakeAnalysisQueue _queue = new();
+
+    [Fact]
+    public async Task ExecuteAsync_JpegValido_PublicaIdDaAnaliseNaFila()
+    {
+        var result = await Execute(null, "foto.jpg", JpegBytes);
+
+        Assert.Equal(result.AnalysisId, Assert.Single(_queue.Published));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_FalhaAoPublicar_MarcaAnaliseComoFailedELancaExcecao()
+    {
+        var publishError = new InvalidOperationException("RabbitMQ indisponível.");
+        _queue.PublishException = publishError;
+
+        var ex = await Assert.ThrowsAsync<AnalysisQueueUnavailableException>(() => Execute(null, "foto.jpg", JpegBytes));
+
+        var analysis = Assert.Single(_repository.Analyses);
+        Assert.Equal(analysis.Id, ex.AnalysisId);
+        Assert.Same(publishError, ex.InnerException);
+        Assert.Equal(AnalysisStatus.Failed, analysis.Status);
+        Assert.Equal(AnalysisFailureType.QueueUnavailable, analysis.Failure?.Type);
+        Assert.Null(analysis.StartedAt);
+        Assert.Equal([AnalysisStatus.Failed], _repository.SavedStatuses);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CancelamentoAoPublicar_MarcaAnaliseComoFailedEPropagaCancelamento()
+    {
+        _queue.PublishException = new OperationCanceledException();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => Execute(null, "foto.jpg", JpegBytes));
+
+        Assert.Equal(AnalysisStatus.Failed, Assert.Single(_repository.Analyses).Status);
+        Assert.Equal([AnalysisStatus.Failed], _repository.SavedStatuses);
+    }
 
     [Fact]
     public async Task ExecuteAsync_JpegValido_CriaAnalisePendenteComImagemNoStorage()
@@ -145,7 +182,7 @@ public class CreateImageAnalysisTests
     [Fact]
     public async Task ExecuteAsync_StreamSemSeek_CopiaEGravaConteudoCompleto()
     {
-        var useCase = new CreateImageAnalysis(_storage, _repository);
+        var useCase = new CreateImageAnalysis(_storage, _repository, _queue);
 
         await useCase.ExecuteAsync(new CreateImageAnalysisCommand(null, "foto.jpg", new NonSeekableStream(JpegBytes)));
 
@@ -159,7 +196,7 @@ public class CreateImageAnalysisTests
     {
         var content = new MemoryStream(JpegBytes) { Position = 5 };
 
-        await new CreateImageAnalysis(_storage, _repository)
+        await new CreateImageAnalysis(_storage, _repository, _queue)
             .ExecuteAsync(new CreateImageAnalysisCommand(null, "foto.jpg", content));
 
         Assert.Equal(JpegBytes, Assert.Single(_storage.Files).Value);
@@ -172,7 +209,7 @@ public class CreateImageAnalysisTests
 
     private Task<CreateImageAnalysisResult> Execute(string? name, string originalFileName, byte[] content)
     {
-        var useCase = new CreateImageAnalysis(_storage, _repository);
+        var useCase = new CreateImageAnalysis(_storage, _repository, _queue);
         return useCase.ExecuteAsync(new CreateImageAnalysisCommand(name, originalFileName, new MemoryStream(content)));
     }
 
