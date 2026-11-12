@@ -83,7 +83,7 @@ public class AnalysisRepositoryTests
             var loaded = (await repository.GetByIdAsync(analysis.Id))!;
 
             loaded.Start();
-            loaded.SetMetadata($"analysis-{loaded.Id}/metadata.json", 4032, 3024);
+            loaded.SetMetadata($"analysis-{loaded.Id}/metadata.json", new ImageDimensions(4032, 3024));
             var finding = loaded.AddFinding("Software de edição", SourceFindingType.Metadata, "Campo Software indica Photoshop.");
             loaded.AddEvidence(finding.Id, "Software", "Software = Adobe Photoshop", EvidenceStrength.Medium, EvidenceDirection.SupportsManipulation);
             loaded.Complete(AnalysisResultStatus.RequiresFurtherInvestigation, ConfidenceLevel.Low, "Indício de edição nos metadados.");
@@ -101,8 +101,8 @@ public class AnalysisRepositoryTests
             Assert.NotNull(loaded.FinishedAt);
 
             Assert.NotNull(loaded.Metadata);
-            Assert.Equal(4032, loaded.Metadata.Width);
-            Assert.Equal(3024, loaded.Metadata.Height);
+            Assert.Equal(4032, loaded.Metadata.Dimensions.Width);
+            Assert.Equal(3024, loaded.Metadata.Dimensions.Height);
 
             var finding = Assert.Single(loaded.Findings);
             Assert.Equal(findingId, finding.Id);
@@ -252,10 +252,10 @@ public class AnalysisRepositoryTests
         var first = (await firstRepository.GetByIdAsync(analysis.Id))!;
         var second = (await secondRepository.GetByIdAsync(analysis.Id))!;
 
-        first.SetMetadata($"analysis-{analysis.Id}/metadata.json", 4032, 3024);
+        first.SetMetadata($"analysis-{analysis.Id}/metadata.json", new ImageDimensions(4032, 3024));
         await firstRepository.UpdateAsync(first);
 
-        second.SetMetadata($"analysis-{analysis.Id}/metadata.json", 4032, 3024);
+        second.SetMetadata($"analysis-{analysis.Id}/metadata.json", new ImageDimensions(4032, 3024));
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => secondRepository.UpdateAsync(second));
     }

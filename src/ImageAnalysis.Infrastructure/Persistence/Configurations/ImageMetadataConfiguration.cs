@@ -19,7 +19,12 @@ public class ImageMetadataConfiguration : IEntityTypeConfiguration<ImageMetadata
             .IsRequired()
             .HasMaxLength(500);
 
-        builder.Property(m => m.Width).IsRequired();
-        builder.Property(m => m.Height).IsRequired();
+        // Value Object gravado nas mesmas colunas Width/Height de antes: não exige migration.
+        builder.OwnsOne(m => m.Dimensions, dimensions =>
+        {
+            dimensions.Property(d => d.Width).HasColumnName("Width").IsRequired();
+            dimensions.Property(d => d.Height).HasColumnName("Height").IsRequired();
+        });
+        builder.Navigation(m => m.Dimensions).IsRequired();
     }
 }
