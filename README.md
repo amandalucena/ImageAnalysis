@@ -106,6 +106,8 @@ Documentadas em [`.env.example`](.env.example). A API recebe a configuração vi
 | `ConnectionStrings__Redis`     | Endereço do Redis (`host:porta`)            |
 | `ConnectionStrings__RabbitMq`  | URI AMQP do RabbitMQ                        |
 | `Storage__RootPath`            | Diretório raiz do object storage local      |
+| `ExifTool__ExecutablePath`     | Executável do ExifTool (padrão: `exiftool` do PATH) |
+| `ExifTool__TimeoutSeconds`     | Tempo limite de cada extração (padrão: 30)  |
 
 ### Health checks
 
@@ -128,6 +130,8 @@ dotnet run --project src/ImageAnalysis.API
 # Rodar os testes
 dotnet test
 ```
+
+A extração de metadados usa o [ExifTool](https://exiftool.org), que já vem instalado na imagem Docker. Fora do Docker, instale-o e deixe-o no PATH (Windows: `winget install OliverBetz.ExifTool`; Debian/Ubuntu: `apt install libimage-exiftool-perl`). Sem ele, os testes que executam o ExifTool são ignorados localmente; no CI (`EXIFTOOL_REQUIRED=true`) eles falham.
 
 ## Desenvolvimento
 

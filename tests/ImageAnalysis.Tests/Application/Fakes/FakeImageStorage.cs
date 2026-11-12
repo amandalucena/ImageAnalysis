@@ -19,4 +19,9 @@ public class FakeImageStorage : IImageStorage
 
     public Task<bool> ExistsAsync(string key, CancellationToken cancellationToken = default) =>
         Task.FromResult(Files.ContainsKey(key));
+
+    public Task<Stream> OpenReadAsync(string key, CancellationToken cancellationToken = default) =>
+        Files.TryGetValue(key, out var content)
+            ? Task.FromResult<Stream>(new MemoryStream(content, writable: false))
+            : Task.FromException<Stream>(new FileNotFoundException($"O arquivo {key} não existe.", key));
 }

@@ -12,4 +12,8 @@ public interface IImageStorage
     Task SaveAsync(string key, Stream content, CancellationToken cancellationToken = default);
 
     Task<bool> ExistsAsync(string key, CancellationToken cancellationToken = default);
+
+    // Abre o arquivo somente para leitura; quem chama fecha o stream.
+    // Lança FileNotFoundException se a chave não existir.
+    Task<Stream> OpenReadAsync(string key, CancellationToken cancellationToken = default);
 }
