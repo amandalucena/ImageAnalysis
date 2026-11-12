@@ -2,6 +2,7 @@ using HealthChecks.UI.Client;
 using ImageAnalysis.API.ErrorHandling;
 using ImageAnalysis.Application;
 using ImageAnalysis.Infrastructure;
+using ImageAnalysis.Infrastructure.ExternalTools.ExifTool;
 using ImageAnalysis.Infrastructure.Messaging;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
@@ -31,8 +32,21 @@ if (string.IsNullOrWhiteSpace(configuredStorageRootPath))
 // em que o processo foi iniciado, para que API e Worker apontem para a mesma pasta.
 var storageRootPath = Path.GetFullPath(configuredStorageRootPath, builder.Environment.ContentRootPath);
 
+// Seção opcional: sem ela, usa "exiftool" do PATH e o tempo limite padrão.
+// Valores inválidos (ex.: tempo limite zero) falham no startup, ao criar o extrator.
+var exifToolDefaults = new ExifToolOptions();
+var exifToolOptions = new ExifToolOptions
+{
+    ExecutablePath = builder.Configuration["ExifTool:ExecutablePath"] is { Length: > 0 } exifToolPath
+        ? exifToolPath
+        : exifToolDefaults.ExecutablePath,
+    Timeout = builder.Configuration.GetValue<int?>("ExifTool:TimeoutSeconds") is int exifToolTimeoutSeconds
+        ? TimeSpan.FromSeconds(exifToolTimeoutSeconds)
+        : exifToolDefaults.Timeout
+};
+
 builder.Services.AddApplication();
-builder.Services.AddInfrastructure(postgresConnectionString, storageRootPath, rabbitMqConnectionString);
+builder.Services.AddInfrastructure(postgresConnectionString, storageRootPath, rabbitMqConnectionString, exifToolOptions);
 
 // O Worker roda em segundo plano no mesmo processo da API.
 builder.Services.AddAnalysisWorker();

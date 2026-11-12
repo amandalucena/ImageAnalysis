@@ -58,6 +58,26 @@ public class LocalImageStorage : IImageStorage
     public Task<bool> ExistsAsync(string key, CancellationToken cancellationToken = default) =>
         Task.FromResult(File.Exists(ResolvePath(key)));
 
+    public Task<Stream> OpenReadAsync(string key, CancellationToken cancellationToken = default)
+    {
+        // FileAccess.Read: quem lê (ex.: ExifTool) não tem como alterar a imagem original.
+        // FileShare.Read: várias leituras simultâneas, mas nenhuma escrita enquanto houver uma aberta.
+        var fullPath = ResolvePath(key);
+
+        try
+        {
+            Stream stream = new FileStream(
+                fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
+
+            return Task.FromResult(stream);
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            // Pasta da chave inexistente (ex.: uploads/{id}/) é o mesmo caso que arquivo inexistente.
+            throw new FileNotFoundException($"O arquivo '{key}' não existe no storage.", key, ex);
+        }
+    }
+
     // Impede que uma chave como "../outro" ou um caminho absoluto escape da pasta raiz.
     private string ResolvePath(string key)
     {

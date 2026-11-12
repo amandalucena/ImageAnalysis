@@ -11,6 +11,11 @@
     <PackageReference Include="RabbitMQ.Client" Version="7.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Testes unitários de ExifToolOutput, sem depender do ExifTool instalado. -->
+    <InternalsVisibleTo Include="ImageAnalysis.Tests" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
