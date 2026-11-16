@@ -9,6 +9,9 @@ namespace ImageAnalysis.Domain.Entities;
 /// </summary>
 public class Evidence : BaseEntity
 {
+    // Limite da coluna no banco. Quem monta descrições com texto vindo do arquivo deve respeitá-lo.
+    public const int MaxDescriptionLength = 2000;
+
     public Guid FindingId { get; private set; }
     public string Name { get; private set; } = null!;
     public string Description { get; private set; } = null!;

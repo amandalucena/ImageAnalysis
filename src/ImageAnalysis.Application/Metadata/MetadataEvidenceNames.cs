@@ -12,6 +12,7 @@ public static class MetadataEvidenceNames
     public const string CreateOriginalMismatch = "create-original-mismatch";
     public const string ScannedOriginalDate = "scanned-original-date";
     public const string ModifiedAfterCapture = "modified-after-capture";
+    public const string DateNotComparable = "date-not-comparable";
     public const string MetadataAbsent = "metadata-absent";
     public const string CameraIdentityMissing = "camera-identity-missing";
     public const string ThumbnailMissing = "thumbnail-missing";

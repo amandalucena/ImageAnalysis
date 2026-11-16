@@ -18,7 +18,7 @@ public class EvidenceConfiguration : IEntityTypeConfiguration<Evidence>
 
         builder.Property(e => e.Description)
             .IsRequired()
-            .HasMaxLength(2000);
+            .HasMaxLength(Evidence.MaxDescriptionLength);
 
         builder.Property(e => e.Strength)
             .HasConversion<string>()

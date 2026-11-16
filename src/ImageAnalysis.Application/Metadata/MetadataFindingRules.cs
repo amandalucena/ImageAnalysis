@@ -1,3 +1,4 @@
+using ImageAnalysis.Application.Exceptions;
 using ImageAnalysis.Domain.Enums;
 using ImageAnalysis.Domain.ValueObjects;
 
@@ -41,11 +42,10 @@ public static class MetadataFindingRules
     {
         ArgumentNullException.ThrowIfNull(metadata);
 
-        var evidences = metadata.Software
-            .Where(tag => KnownSoftware.IsEditor(tag.Value))
-            .Select(tag => new AnalyzerEvidence(
+        var evidences = DistinctValues(metadata.Software, KnownSoftware.IsEditor)
+            .Select(group => new AnalyzerEvidence(
                 MetadataEvidenceNames.EditingSoftwareTag,
-                $"{tag.Source} indica editor de imagem: {tag.Value}",
+                $"{Sources(group)} {Verb(group)} editor de imagem: {FileValue(group.Value)}",
                 EvidenceStrength.Medium,
                 EvidenceDirection.SupportsManipulation))
             .ToList();
@@ -55,7 +55,7 @@ public static class MetadataFindingRules
 
         if (HasDivergentValues(metadata.Software))
         {
-            var sources = string.Join("; ", metadata.Software.Select(tag => $"{tag.Source} = {tag.Value}"));
+            var sources = string.Join("; ", metadata.Software.Select(tag => $"{tag.Source} = {FileValue(tag.Value)}"));
 
             evidences.Add(new AnalyzerEvidence(
                 MetadataEvidenceNames.SoftwareDivergence,
@@ -79,11 +79,10 @@ public static class MetadataFindingRules
     {
         ArgumentNullException.ThrowIfNull(metadata);
 
-        var evidences = metadata.Software
-            .Where(tag => KnownSoftware.IsAiGenerator(tag.Value))
-            .Select(tag => new AnalyzerEvidence(
+        var evidences = DistinctValues(metadata.Software, KnownSoftware.IsAiGenerator)
+            .Select(group => new AnalyzerEvidence(
                 MetadataEvidenceNames.AiGeneratorTag,
-                $"{tag.Source} indica gerador de imagem por IA: {tag.Value}",
+                $"{Sources(group)} {Verb(group)} gerador de imagem por IA: {FileValue(group.Value)}",
                 EvidenceStrength.High,
                 EvidenceDirection.SupportsManipulation))
             .ToList();
@@ -128,22 +127,20 @@ public static class MetadataFindingRules
     }
 
     /// <summary>
-    /// EXIF parcial: o arquivo tem metadados, mas faltam os que identificam a câmera — típico de
-    /// remoção seletiva de tags. Sinal fraco (Low) e só com pelo menos StrippedMetadataMinSignals
-    /// sinais. Nunca dispara junto com MetadataUnavailable. "editor-without-camera" soma de
-    /// propósito com EditingSoftware: descreve outra coisa (a identidade da câmera foi apagada).
+    /// EXIF parcial: o arquivo tem um bloco EXIF (datas ou dimensões declaradas), mas faltam os
+    /// campos que identificam a câmera — típico de remoção seletiva de tags. Sinal fraco (Low) e só
+    /// com pelo menos StrippedMetadataMinSignals sinais. Nunca dispara junto com MetadataUnavailable.
+    /// Não se aplica a scanners, que não gravam identidade de câmera nem miniatura.
+    /// "editor-without-camera" soma de propósito com EditingSoftware: descreve outra coisa
+    /// (a identidade da câmera foi apagada).
     /// </summary>
     public static AnalyzerFinding? StrippedMetadata(NormalizedMetadata metadata)
     {
         ArgumentNullException.ThrowIfNull(metadata);
 
-        var hasExif = metadata.DateTimeOriginal is not null
-            || metadata.CreateDate is not null
-            || metadata.ModifyDate is not null
-            || metadata.DeclaredDimensions is not null
-            || metadata.Software.Count > 0;
-
-        if (!hasExif)
+        // Software sozinho não é EXIF: um PNG exportado com só o CreatorTool no XMP nunca teve
+        // bloco EXIF, e tratá-lo como "removido" acusaria ausência como manipulação (seção 9).
+        if (!HasExifBlock(metadata) || Device(metadata) == CaptureDevice.Scanner)
             return null;
 
         var cameraMissing = metadata.Make is null && metadata.Model is null;
@@ -154,16 +151,20 @@ public static class MetadataFindingRules
                 MetadataEvidenceNames.CameraIdentityMissing,
                 "O arquivo tem metadados EXIF, mas não informa fabricante (Make) nem modelo (Model) da câmera."));
 
-        if (!metadata.HasThumbnail)
+        // Só conta quando o EXIF tem cara de captura por câmera (data de captura e dimensões
+        // declaradas). Sem isso, a falta da miniatura acompanha qualquer arquivo que não veio de
+        // uma câmera e seria só um reflexo de "câmera ausente", contando o mesmo fato duas vezes.
+        if (!metadata.HasThumbnail && metadata.DateTimeOriginal is not null && metadata.DeclaredDimensions is not null)
             evidences.Add(StrippedEvidence(
                 MetadataEvidenceNames.ThumbnailMissing,
-                "O arquivo tem metadados EXIF, mas não tem a miniatura (thumbnail) que câmeras costumam gravar."));
+                "O arquivo tem metadados de captura (DateTimeOriginal e dimensões declaradas), mas não tem " +
+                "a miniatura (thumbnail) que câmeras costumam gravar junto com eles."));
 
         var editor = metadata.Software.FirstOrDefault(tag => KnownSoftware.IsEditor(tag.Value));
         if (cameraMissing && editor is not null)
             evidences.Add(StrippedEvidence(
                 MetadataEvidenceNames.EditorWithoutCamera,
-                $"{editor.Source} indica editor de imagem ({editor.Value}), mas a identificação da câmera " +
+                $"{editor.Source} indica editor de imagem ({FileValue(editor.Value)}), mas a identificação da câmera " +
                 "não está presente: ela pode ter sido apagada durante a edição."));
 
         if (evidences.Count < StrippedMetadataMinSignals)
@@ -189,7 +190,7 @@ public static class MetadataFindingRules
 
         var evidences = metadata.Warnings.Select(warning => new AnalyzerEvidence(
             MetadataEvidenceNames.ExifToolWarning,
-            $"O ExifTool emitiu um aviso ao ler o arquivo: {warning}",
+            $"O ExifTool emitiu um aviso ao ler o arquivo: {FileValue(warning)}",
             EvidenceStrength.Low,
             EvidenceDirection.Neutral));
 
@@ -199,17 +200,23 @@ public static class MetadataFindingRules
             evidences);
     }
 
-    private static bool HasCaptureMetadata(NormalizedMetadata metadata) =>
-        metadata.Make is not null
-        || metadata.Model is not null
-        || metadata.Software.Count > 0
-        || metadata.DateTimeOriginal is not null
+    // Bloco EXIF de captura: datas (mesmo inválidas, a tag existe) ou dimensões declaradas.
+    // Faz parte de HasCaptureMetadata, o que garante que StrippedMetadata (que exige este bloco)
+    // nunca dispare junto com MetadataUnavailable.
+    private static bool HasExifBlock(NormalizedMetadata metadata) =>
+        metadata.DateTimeOriginal is not null
         || metadata.CreateDate is not null
         || metadata.ModifyDate is not null
+        || metadata.DeclaredDimensions is not null;
+
+    private static bool HasCaptureMetadata(NormalizedMetadata metadata) =>
+        HasExifBlock(metadata)
+        || metadata.Make is not null
+        || metadata.Model is not null
+        || metadata.Software.Count > 0
         || metadata.HasThumbnail
         || metadata.HasGps
-        || metadata.CaptureDevice is not null
-        || metadata.DeclaredDimensions is not null;
+        || metadata.CaptureDevice is not null;
 
     private static AnalyzerEvidence StrippedEvidence(string name, string description) =>
         new(name, description, EvidenceStrength.Low, EvidenceDirection.SupportsManipulation);
@@ -232,15 +239,17 @@ public static class MetadataFindingRules
 
         var device = Device(metadata);
         var evidences = new List<AnalyzerEvidence>();
+        var notComparable = new List<(string Tag, MetadataDate Date)>();
 
         // (b) CreateDate x DateTimeOriginal
-        var createVsOriginal = Difference(metadata.CreateDate, metadata.DateTimeOriginal);
+        var createVsOriginal = Difference(
+            ("CreateDate", metadata.CreateDate), ("DateTimeOriginal", metadata.DateTimeOriginal), notComparable);
         if (createVsOriginal is { } diff && diff.Duration() > DateTolerance)
             evidences.Add(CreateOriginalEvidence(metadata, device));
 
         // (a) e (c) ModifyDate x captura
         var (captureTag, capture) = CaptureReference(metadata, device);
-        if (Difference(metadata.ModifyDate, capture) is { } sinceCapture)
+        if (Difference(("ModifyDate", metadata.ModifyDate), (captureTag, capture), notComparable) is { } sinceCapture)
         {
             if (sinceCapture < -DateTolerance)
                 evidences.Add(new AnalyzerEvidence(
@@ -257,6 +266,16 @@ public static class MetadataFindingRules
                     EvidenceStrength.Low,
                     EvidenceDirection.SupportsManipulation));
         }
+
+        // Datas que não puderam ser comparadas ficam registradas no laudo, uma vez cada.
+        foreach (var (tag, date) in notComparable.DistinctBy(entry => entry.Tag))
+            evidences.Add(new AnalyzerEvidence(
+                MetadataEvidenceNames.DateNotComparable,
+                $"{tag} ({date.Raw}, offset {FormatOffset(date.Offset!.Value)}) não pôde ser comparada: " +
+                "convertida para UTC, ela sai do intervalo de datas representável. Isso costuma indicar " +
+                "um valor forjado ou corrompido.",
+                EvidenceStrength.Low,
+                EvidenceDirection.Neutral));
 
         if (evidences.Count == 0)
             return null;
@@ -310,24 +329,74 @@ public static class MetadataFindingRules
         return first.Item2?.Value is not null ? first : second;
     }
 
-    // later - earlier. null se alguma não tem valor. Com offset nas duas, compara em UTC;
-    // senão compara sem fuso, porque a câmera grava todas no mesmo relógio local.
-    private static TimeSpan? Difference(MetadataDate? later, MetadataDate? earlier)
+    // later - earlier. null se alguma não tem valor ou não é comparável. Com offset nas duas,
+    // compara em UTC; senão compara sem fuso, porque a câmera grava todas no mesmo relógio local.
+    // Uma data que sai do intervalo ao converter para UTC vai para notComparable.
+    private static TimeSpan? Difference(
+        (string Tag, MetadataDate? Date) later,
+        (string Tag, MetadataDate? Date) earlier,
+        List<(string Tag, MetadataDate Date)> notComparable)
     {
-        if (later?.Value is not { } laterValue || earlier?.Value is not { } earlierValue)
+        if (later.Date?.Value is not { } laterValue || earlier.Date?.Value is not { } earlierValue)
             return null;
 
-        if (later.Offset is { } laterOffset && earlier.Offset is { } earlierOffset)
-            return (laterValue - laterOffset) - (earlierValue - earlierOffset);
+        if (later.Date.Offset is null || earlier.Date.Offset is null)
+            return laterValue - earlierValue;
 
-        return laterValue - earlierValue;
+        try
+        {
+            return ToUtc(later.Date) - ToUtc(earlier.Date);
+        }
+        catch (MetadataDateOutOfRangeException ex)
+        {
+            notComparable.Add((ReferenceEquals(ex.Date, later.Date) ? later.Tag : earlier.Tag, ex.Date));
+            return null;
+        }
     }
 
-    // Diferença só de maiúsculas ou espaços nas pontas não conta como divergência.
+    /// <exception cref="MetadataDateOutOfRangeException">O resultado sai do intervalo de DateTime.</exception>
+    private static DateTime ToUtc(MetadataDate date)
+    {
+        // Em ticks para checar o intervalo antes: DateTime - TimeSpan lança ArgumentOutOfRangeException
+        // genérica, que não distingue este caso de um bug.
+        var utcTicks = date.Value!.Value.Ticks - date.Offset!.Value.Ticks;
+        if (utcTicks < DateTime.MinValue.Ticks || utcTicks > DateTime.MaxValue.Ticks)
+            throw new MetadataDateOutOfRangeException(date);
+
+        return new DateTime(utcTicks, DateTimeKind.Utc);
+    }
+
+    private static string FormatOffset(TimeSpan offset) =>
+        $"{(offset < TimeSpan.Zero ? "-" : "+")}{offset.Duration():hh\\:mm}";
+
+    // Diferença só de maiúsculas não conta como divergência (o normalizador já tira o padding).
     private static bool HasDivergentValues(IReadOnlyList<SoftwareTag> software) =>
         software
-            .Select(tag => tag.Value.Trim())
+            .Select(tag => tag.Value)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Skip(1)
             .Any();
+
+    // Tamanho máximo de um valor vindo do arquivo dentro de uma descrição. Com até três fontes
+    // de software por evidência, a descrição fica bem abaixo de Evidence.MaxDescriptionLength.
+    public const int MaxFileValueLength = 200;
+
+    // Valores vindos do arquivo são controlados por quem enviou a imagem e podem ter qualquer
+    // tamanho; sem corte, a descrição estouraria a coluna no banco e a análise nunca seria gravada.
+    private static string FileValue(string value) =>
+        value.Length <= MaxFileValueLength ? value : string.Concat(value.AsSpan(0, MaxFileValueLength), "…");
+
+    // Agrupa tags com o mesmo valor (sem diferenciar maiúsculas): o Photoshop grava o mesmo texto
+    // em IFD0:Software e XMP-xmp:CreatorTool, e isso é um fato só, não dois.
+    private static IEnumerable<SoftwareGroup> DistinctValues(IReadOnlyList<SoftwareTag> software, Func<string, bool> matches) =>
+        software
+            .Where(tag => matches(tag.Value))
+            .GroupBy(tag => tag.Value, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new SoftwareGroup(group.First().Value, group.Select(tag => tag.Source).ToArray()));
+
+    private static string Sources(SoftwareGroup group) => string.Join(", ", group.Sources);
+
+    private static string Verb(SoftwareGroup group) => group.Sources.Count == 1 ? "indica" : "indicam";
+
+    private sealed record SoftwareGroup(string Value, IReadOnlyList<string> Sources);
 }

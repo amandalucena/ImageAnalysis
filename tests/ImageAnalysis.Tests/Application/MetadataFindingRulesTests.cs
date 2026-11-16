@@ -1,4 +1,5 @@
 using ImageAnalysis.Application.Metadata;
+using ImageAnalysis.Domain.Entities;
 using ImageAnalysis.Domain.ValueObjects;
 using ImageAnalysis.Domain.Enums;
 
@@ -50,17 +51,68 @@ public class MetadataFindingRulesTests
     }
 
     [Fact]
-    public void EditingSoftware_MesmoEditorEmDuasTags_DuasEvidenciasSemDivergencia()
+    public void EditingSoftware_MesmoEditorEmDuasTags_UmaEvidenciaCitandoAsDuasFontes()
     {
+        // O normalizador já tira o padding; aqui só a caixa difere.
         var metadata = WithSoftware(
             new SoftwareTag("IFD0:Software", "Adobe Photoshop 25.0 (Windows)"),
-            new SoftwareTag("XMP-xmp:CreatorTool", " adobe photoshop 25.0 (windows) "));
+            new SoftwareTag("XMP-xmp:CreatorTool", "adobe photoshop 25.0 (windows)"));
 
         var finding = MetadataFindingRules.EditingSoftware(metadata);
 
         Assert.NotNull(finding);
-        Assert.Equal(2, finding.Evidences.Count);
-        Assert.All(finding.Evidences, e => Assert.Equal(MetadataEvidenceNames.EditingSoftwareTag, e.Name));
+        var evidence = Assert.Single(finding.Evidences);
+        Assert.Equal(MetadataEvidenceNames.EditingSoftwareTag, evidence.Name);
+        Assert.Contains("IFD0:Software, XMP-xmp:CreatorTool indicam", evidence.Description);
+    }
+
+    [Fact]
+    public void EditingSoftware_DoisEditoresDiferentes_UmaEvidenciaPorValor()
+    {
+        var metadata = WithSoftware(
+            new SoftwareTag("IFD0:Software", "GIMP 2.10.36"),
+            new SoftwareTag("XMP-xmp:CreatorTool", "Adobe Photoshop 25.0 (Windows)"));
+
+        var finding = MetadataFindingRules.EditingSoftware(metadata);
+
+        Assert.Equal(2, finding!.Evidences.Count(e => e.Name == MetadataEvidenceNames.EditingSoftwareTag));
+    }
+
+    [Fact]
+    public void AiGenerator_MesmoGeradorEmDuasTags_UmaEvidencia()
+    {
+        var metadata = WithSoftware(
+            new SoftwareTag("IFD0:Software", "Midjourney"),
+            new SoftwareTag("XMP-xmp:CreatorTool", "Midjourney"));
+
+        var evidence = Assert.Single(MetadataFindingRules.AiGenerator(metadata)!.Evidences);
+
+        Assert.Contains("IFD0:Software, XMP-xmp:CreatorTool", evidence.Description);
+    }
+
+    [Fact]
+    public void ValoresGigantesDoArquivo_DescricoesCabemNoBanco()
+    {
+        var huge = "Adobe Photoshop " + new string('x', 5_000);
+        var metadata = new NormalizedMetadata
+        {
+            Software =
+            [
+                new SoftwareTag("IFD0:Software", huge),
+                new SoftwareTag("XMP-tiff:Software", huge + "y"),
+                new SoftwareTag("XMP-xmp:CreatorTool", huge + "z")
+            ],
+            DateTimeOriginal = Date(Capture),
+            Warnings = [new string('w', 5_000)]
+        };
+
+        var descriptions = MetadataFindingRules.Evaluate(metadata).Findings
+            .SelectMany(f => f.Evidences)
+            .Select(e => e.Description)
+            .ToList();
+
+        Assert.Contains(descriptions, d => d.Contains("…"));
+        Assert.All(descriptions, d => Assert.True(d.Length <= Evidence.MaxDescriptionLength, $"{d.Length} caracteres"));
     }
 
     [Fact]
@@ -395,6 +447,57 @@ public class MetadataFindingRulesTests
         Assert.Contains(finding.Evidences, e => e.Name == MetadataEvidenceNames.ModifyBeforeCapture);
     }
 
+    [Theory]
+    [InlineData("0001:01:01 00:00:00", 5)]     // UTC antes de DateTime.MinValue
+    [InlineData("9999:12:31 23:00:00", -12)]   // UTC depois de DateTime.MaxValue
+    public void InconsistentDates_DataForaDoIntervaloEmUtc_NaoComparaERegistraNeutral(string raw, int offsetHours)
+    {
+        var metadata = Dates(
+            Date(raw, TimeSpan.FromHours(offsetHours)),
+            Date(Capture, TimeSpan.Zero),
+            Date(Capture, TimeSpan.Zero),
+            CaptureDevice.Camera);
+
+        var finding = MetadataFindingRules.InconsistentDates(metadata);
+
+        Assert.NotNull(finding);
+        var evidence = Assert.Single(finding.Evidences);
+        Assert.Equal(MetadataEvidenceNames.DateNotComparable, evidence.Name);
+        Assert.Equal(EvidenceDirection.Neutral, evidence.Direction);
+        Assert.Contains("DateTimeOriginal", evidence.Description);
+        Assert.Contains(raw, evidence.Description);
+    }
+
+    [Fact]
+    public void InconsistentDates_DataForaDoIntervalo_DemaisComparacoesContinuam()
+    {
+        // DateTimeOriginal não é comparável, mas ModifyDate antes da CreateDate ainda é detectado.
+        var metadata = Dates(
+            Date("0001:01:01 00:00:00", TimeSpan.FromHours(5)),
+            Date(Capture, TimeSpan.Zero),
+            Date("2023:05:01 08:00:00", TimeSpan.Zero),
+            CaptureDevice.Camera);
+
+        var finding = MetadataFindingRules.InconsistentDates(metadata);
+
+        Assert.NotNull(finding);
+        Assert.Contains(finding.Evidences, e => e.Name == MetadataEvidenceNames.DateNotComparable);
+        Assert.DoesNotContain(finding.Evidences, e => e.Name == MetadataEvidenceNames.CreateOriginalMismatch);
+    }
+
+    [Fact]
+    public void Evaluate_DataForaDoIntervalo_NaoLancaExcecao()
+    {
+        var metadata = Dates(
+            Date("0001:01:01 00:00:00", TimeSpan.FromHours(5)),
+            Date("0001:01:01 00:00:00", TimeSpan.FromHours(3)),
+            Date("0001:01:01 00:00:00", TimeSpan.FromHours(1)));
+
+        var result = MetadataFindingRules.Evaluate(metadata);
+
+        Assert.Contains(result.Findings, f => f.Name == MetadataFindingNames.InconsistentDates);
+    }
+
     [Fact]
     public void InconsistentDates_MetadataNulo_LancaExcecao()
     {
@@ -493,7 +596,12 @@ public class MetadataFindingRulesTests
     [Fact]
     public void StrippedMetadata_DoisSinais_DuasEvidenciasLow()
     {
-        var metadata = new NormalizedMetadata { DateTimeOriginal = Date(Capture) };
+        // EXIF de captura (data + dimensões declaradas) sem câmera e sem miniatura.
+        var metadata = new NormalizedMetadata
+        {
+            DateTimeOriginal = Date(Capture),
+            DeclaredDimensions = new ImageDimensions(4032, 3024)
+        };
 
         var finding = MetadataFindingRules.StrippedMetadata(metadata);
 
@@ -515,7 +623,8 @@ public class MetadataFindingRulesTests
         var metadata = new NormalizedMetadata
         {
             Software = [new SoftwareTag("IFD0:Software", "Adobe Photoshop 25.0 (Windows)")],
-            DateTimeOriginal = Date(Capture)
+            DateTimeOriginal = Date(Capture),
+            DeclaredDimensions = new ImageDimensions(4032, 3024)
         };
 
         var finding = MetadataFindingRules.StrippedMetadata(metadata);
@@ -573,6 +682,46 @@ public class MetadataFindingRulesTests
         new NormalizedMetadata { Software = [new SoftwareTag("IFD0:Software", "GIMP 2.10")] },
         new NormalizedMetadata { DeclaredDimensions = new ImageDimensions(10, 10) }
     };
+
+    [Fact]
+    public void StrippedMetadata_PngComSoCreatorToolNoXmp_RetornaNull()
+    {
+        // Nunca teve bloco EXIF: não é "removido".
+        var metadata = WithSoftware(new SoftwareTag("XMP-xmp:CreatorTool", "Adobe Photoshop 25.0 (Windows)"));
+
+        Assert.Null(MetadataFindingRules.StrippedMetadata(metadata));
+        Assert.NotNull(MetadataFindingRules.EditingSoftware(metadata));
+    }
+
+    [Fact]
+    public void StrippedMetadata_ExportComSoftwareEData_SemCameraNemMiniatura_RetornaNull()
+    {
+        // Camera ausente e miniatura ausente andam juntas fora de câmeras: um sinal só.
+        var metadata = new NormalizedMetadata
+        {
+            Software = [new SoftwareTag("IFD0:Software", "EPSON Scan")],
+            ModifyDate = Date(Capture)
+        };
+
+        Assert.Null(MetadataFindingRules.StrippedMetadata(metadata));
+    }
+
+    [Theory]
+    [InlineData(CaptureDevice.Scanner, null)]
+    [InlineData(null, "CanoScan LiDE 400")]
+    public void StrippedMetadata_Scanner_RetornaNull(CaptureDevice? device, string? model)
+    {
+        var metadata = new NormalizedMetadata
+        {
+            CaptureDevice = device,
+            Model = model,
+            Software = [new SoftwareTag("IFD0:Software", "Adobe Photoshop 25.0 (Windows)")],
+            DateTimeOriginal = Date(Capture),
+            DeclaredDimensions = new ImageDimensions(4032, 3024)
+        };
+
+        Assert.Null(MetadataFindingRules.StrippedMetadata(metadata));
+    }
 
     [Fact]
     public void StrippedMetadata_MetadataNulo_LancaExcecao()
