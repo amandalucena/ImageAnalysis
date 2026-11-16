@@ -12,4 +12,5 @@ public static class MetadataFindingNames
     public const string InconsistentDates = "metadata.inconsistent-dates";
     public const string StrippedMetadata = "metadata.stripped-metadata";
     public const string MetadataUnavailable = "metadata.unavailable";
+    public const string ReadWarnings = "metadata.read-warnings";
 }

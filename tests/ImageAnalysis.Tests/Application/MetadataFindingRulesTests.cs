@@ -1,4 +1,5 @@
 using ImageAnalysis.Application.Metadata;
+using ImageAnalysis.Domain.ValueObjects;
 using ImageAnalysis.Domain.Enums;
 
 namespace ImageAnalysis.Tests.Application;
@@ -398,5 +399,228 @@ public class MetadataFindingRulesTests
     public void InconsistentDates_MetadataNulo_LancaExcecao()
     {
         Assert.Throws<ArgumentNullException>(() => MetadataFindingRules.InconsistentDates(null!));
+    }
+
+    // --- MetadataUnavailable ---
+
+    [Fact]
+    public void MetadataUnavailable_SemNenhumMetadado_EvidenciaNeutral()
+    {
+        var finding = MetadataFindingRules.MetadataUnavailable(new NormalizedMetadata());
+
+        Assert.NotNull(finding);
+        Assert.Equal(MetadataFindingNames.MetadataUnavailable, finding.Name);
+
+        var evidence = Assert.Single(finding.Evidences);
+        Assert.Equal(MetadataEvidenceNames.MetadataAbsent, evidence.Name);
+        Assert.Equal(EvidenceStrength.Low, evidence.Strength);
+        Assert.Equal(EvidenceDirection.Neutral, evidence.Direction);
+        Assert.Contains("não indica manipulação", evidence.Description);
+    }
+
+    [Fact]
+    public void MetadataUnavailable_SoEstruturaDoArquivo_AindaConsideraAusente()
+    {
+        var metadata = new NormalizedMetadata
+        {
+            HasJfif = true,
+            JfifVersion = "1.01",
+            Dimensions = new ImageDimensions(800, 600),
+            Warnings = ["JPEG format error"]
+        };
+
+        Assert.NotNull(MetadataFindingRules.MetadataUnavailable(metadata));
+    }
+
+    public static TheoryData<NormalizedMetadata> AnyCaptureField => new()
+    {
+        new NormalizedMetadata { Make = "Apple" },
+        new NormalizedMetadata { Model = "iPhone 13" },
+        new NormalizedMetadata { Software = [new SoftwareTag("IFD0:Software", "17.4.1")] },
+        new NormalizedMetadata { DateTimeOriginal = new MetadataDate("0000:00:00 00:00:00", null, null) },
+        new NormalizedMetadata { CreateDate = new MetadataDate(Capture, null, null) },
+        new NormalizedMetadata { ModifyDate = new MetadataDate(Capture, null, null) },
+        new NormalizedMetadata { HasThumbnail = true },
+        new NormalizedMetadata { HasGps = true },
+        new NormalizedMetadata { CaptureDevice = CaptureDevice.Camera },
+        new NormalizedMetadata { DeclaredDimensions = new ImageDimensions(4032, 3024) }
+    };
+
+    [Theory]
+    [MemberData(nameof(AnyCaptureField))]
+    public void MetadataUnavailable_QualquerCampoDeCaptura_RetornaNull(NormalizedMetadata metadata)
+    {
+        Assert.Null(MetadataFindingRules.MetadataUnavailable(metadata));
+    }
+
+    [Fact]
+    public void MetadataUnavailable_MetadataNulo_LancaExcecao()
+    {
+        Assert.Throws<ArgumentNullException>(() => MetadataFindingRules.MetadataUnavailable(null!));
+    }
+
+    // --- StrippedMetadata ---
+
+    [Fact]
+    public void StrippedMetadata_SemExif_RetornaNull()
+    {
+        Assert.Null(MetadataFindingRules.StrippedMetadata(new NormalizedMetadata()));
+    }
+
+    [Fact]
+    public void StrippedMetadata_CameraCompleta_RetornaNull()
+    {
+        var metadata = new NormalizedMetadata
+        {
+            Make = "Apple",
+            Model = "iPhone 13",
+            DateTimeOriginal = Date(Capture),
+            HasThumbnail = true
+        };
+
+        Assert.Null(MetadataFindingRules.StrippedMetadata(metadata));
+    }
+
+    [Fact]
+    public void StrippedMetadata_UmSinal_RetornaNull()
+    {
+        // Câmera presente, só a miniatura falta.
+        var metadata = new NormalizedMetadata { Make = "Apple", DateTimeOriginal = Date(Capture) };
+
+        Assert.Null(MetadataFindingRules.StrippedMetadata(metadata));
+    }
+
+    [Fact]
+    public void StrippedMetadata_DoisSinais_DuasEvidenciasLow()
+    {
+        var metadata = new NormalizedMetadata { DateTimeOriginal = Date(Capture) };
+
+        var finding = MetadataFindingRules.StrippedMetadata(metadata);
+
+        Assert.NotNull(finding);
+        Assert.Equal(MetadataFindingNames.StrippedMetadata, finding.Name);
+        Assert.Equal(
+            [MetadataEvidenceNames.CameraIdentityMissing, MetadataEvidenceNames.ThumbnailMissing],
+            finding.Evidences.Select(e => e.Name));
+        Assert.All(finding.Evidences, e =>
+        {
+            Assert.Equal(EvidenceStrength.Low, e.Strength);
+            Assert.Equal(EvidenceDirection.SupportsManipulation, e.Direction);
+        });
+    }
+
+    [Fact]
+    public void StrippedMetadata_TresSinais_IncluiEditorSemCamera()
+    {
+        var metadata = new NormalizedMetadata
+        {
+            Software = [new SoftwareTag("IFD0:Software", "Adobe Photoshop 25.0 (Windows)")],
+            DateTimeOriginal = Date(Capture)
+        };
+
+        var finding = MetadataFindingRules.StrippedMetadata(metadata);
+
+        Assert.NotNull(finding);
+        Assert.Equal(3, finding.Evidences.Count);
+
+        var editor = Assert.Single(finding.Evidences, e => e.Name == MetadataEvidenceNames.EditorWithoutCamera);
+        Assert.Contains("IFD0:Software", editor.Description);
+        Assert.Contains("Adobe Photoshop 25.0 (Windows)", editor.Description);
+    }
+
+    [Fact]
+    public void StrippedMetadata_EditorComCameraEMiniatura_RetornaNull()
+    {
+        var metadata = new NormalizedMetadata
+        {
+            Make = "Canon",
+            Model = "Canon EOS R5",
+            Software = [new SoftwareTag("IFD0:Software", "Adobe Photoshop 25.0 (Windows)")],
+            HasThumbnail = true
+        };
+
+        Assert.Null(MetadataFindingRules.StrippedMetadata(metadata));
+    }
+
+    [Fact]
+    public void StrippedMetadata_SomaComEditingSoftware()
+    {
+        var metadata = new NormalizedMetadata
+        {
+            Software = [new SoftwareTag("IFD0:Software", "GIMP 2.10.36")],
+            DateTimeOriginal = Date(Capture)
+        };
+
+        Assert.NotNull(MetadataFindingRules.EditingSoftware(metadata));
+        Assert.NotNull(MetadataFindingRules.StrippedMetadata(metadata));
+    }
+
+    [Theory]
+    [MemberData(nameof(MixedCases))]
+    public void AusenteERemovido_NuncaDisparamJuntos(NormalizedMetadata metadata)
+    {
+        var unavailable = MetadataFindingRules.MetadataUnavailable(metadata);
+        var stripped = MetadataFindingRules.StrippedMetadata(metadata);
+
+        Assert.False(unavailable is not null && stripped is not null);
+    }
+
+    public static TheoryData<NormalizedMetadata> MixedCases => new()
+    {
+        new NormalizedMetadata(),
+        new NormalizedMetadata { HasJfif = true, Warnings = ["aviso"] },
+        new NormalizedMetadata { DateTimeOriginal = new MetadataDate(Capture, null, null) },
+        new NormalizedMetadata { Software = [new SoftwareTag("IFD0:Software", "GIMP 2.10")] },
+        new NormalizedMetadata { DeclaredDimensions = new ImageDimensions(10, 10) }
+    };
+
+    [Fact]
+    public void StrippedMetadata_MetadataNulo_LancaExcecao()
+    {
+        Assert.Throws<ArgumentNullException>(() => MetadataFindingRules.StrippedMetadata(null!));
+    }
+
+    // --- ReadWarnings ---
+
+    [Fact]
+    public void ReadWarnings_SemAvisos_RetornaNull()
+    {
+        Assert.Null(MetadataFindingRules.ReadWarnings(new NormalizedMetadata()));
+    }
+
+    [Fact]
+    public void ReadWarnings_UmAviso_EvidenciaNeutralComOTexto()
+    {
+        var metadata = new NormalizedMetadata { Warnings = ["JPEG format error"] };
+
+        var finding = MetadataFindingRules.ReadWarnings(metadata);
+
+        Assert.NotNull(finding);
+        Assert.Equal(MetadataFindingNames.ReadWarnings, finding.Name);
+
+        var evidence = Assert.Single(finding.Evidences);
+        Assert.Equal(MetadataEvidenceNames.ExifToolWarning, evidence.Name);
+        Assert.Equal(EvidenceStrength.Low, evidence.Strength);
+        Assert.Equal(EvidenceDirection.Neutral, evidence.Direction);
+        Assert.Contains("JPEG format error", evidence.Description);
+    }
+
+    [Fact]
+    public void ReadWarnings_DoisAvisos_DuasEvidencias()
+    {
+        var metadata = new NormalizedMetadata
+        {
+            Warnings = ["Possibly incorrect maker notes offsets", "Bad IFD1 directory"]
+        };
+
+        var finding = MetadataFindingRules.ReadWarnings(metadata);
+
+        Assert.Equal(2, finding!.Evidences.Count);
+    }
+
+    [Fact]
+    public void ReadWarnings_MetadataNulo_LancaExcecao()
+    {
+        Assert.Throws<ArgumentNullException>(() => MetadataFindingRules.ReadWarnings(null!));
     }
 }

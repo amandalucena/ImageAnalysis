@@ -75,6 +75,123 @@ public static class MetadataFindingRules
             evidences);
     }
 
+    // Um sinal isolado de remoção é comum em apps legítimos; só a combinação vira achado.
+    public const int StrippedMetadataMinSignals = 2;
+
+    /// <summary>
+    /// Nenhum metadado de captura no arquivo. Registrado como Neutral: ausência de metadata não é,
+    /// por si só, evidência de manipulação (CLAUDE.md, seção 9). JFIF, dimensões reais e avisos
+    /// descrevem a estrutura do arquivo, não a captura, e não contam aqui.
+    /// </summary>
+    public static AnalyzerFinding? MetadataUnavailable(NormalizedMetadata metadata)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+
+        if (HasCaptureMetadata(metadata))
+            return null;
+
+        return new AnalyzerFinding(
+            MetadataFindingNames.MetadataUnavailable,
+            "A imagem não contém metadados de captura.",
+            [
+                new AnalyzerEvidence(
+                    MetadataEvidenceNames.MetadataAbsent,
+                    "Nenhum metadado de captura foi encontrado (câmera, datas, software, GPS, miniatura). " +
+                    "Isso é comum e não indica manipulação: PNG, GIF e BMP normalmente não têm EXIF, " +
+                    "capturas de tela também não, e aplicativos de mensagem e redes sociais removem " +
+                    "os metadados no envio.",
+                    EvidenceStrength.Low,
+                    EvidenceDirection.Neutral)
+            ]);
+    }
+
+    /// <summary>
+    /// EXIF parcial: o arquivo tem metadados, mas faltam os que identificam a câmera — típico de
+    /// remoção seletiva de tags. Sinal fraco (Low) e só com pelo menos StrippedMetadataMinSignals
+    /// sinais. Nunca dispara junto com MetadataUnavailable. "editor-without-camera" soma de
+    /// propósito com EditingSoftware: descreve outra coisa (a identidade da câmera foi apagada).
+    /// </summary>
+    public static AnalyzerFinding? StrippedMetadata(NormalizedMetadata metadata)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+
+        var hasExif = metadata.DateTimeOriginal is not null
+            || metadata.CreateDate is not null
+            || metadata.ModifyDate is not null
+            || metadata.DeclaredDimensions is not null
+            || metadata.Software.Count > 0;
+
+        if (!hasExif)
+            return null;
+
+        var cameraMissing = metadata.Make is null && metadata.Model is null;
+        var evidences = new List<AnalyzerEvidence>();
+
+        if (cameraMissing)
+            evidences.Add(StrippedEvidence(
+                MetadataEvidenceNames.CameraIdentityMissing,
+                "O arquivo tem metadados EXIF, mas não informa fabricante (Make) nem modelo (Model) da câmera."));
+
+        if (!metadata.HasThumbnail)
+            evidences.Add(StrippedEvidence(
+                MetadataEvidenceNames.ThumbnailMissing,
+                "O arquivo tem metadados EXIF, mas não tem a miniatura (thumbnail) que câmeras costumam gravar."));
+
+        var editor = metadata.Software.FirstOrDefault(tag => KnownSoftware.IsEditor(tag.Value));
+        if (cameraMissing && editor is not null)
+            evidences.Add(StrippedEvidence(
+                MetadataEvidenceNames.EditorWithoutCamera,
+                $"{editor.Source} indica editor de imagem ({editor.Value}), mas a identificação da câmera " +
+                "não está presente: ela pode ter sido apagada durante a edição."));
+
+        if (evidences.Count < StrippedMetadataMinSignals)
+            return null;
+
+        return new AnalyzerFinding(
+            MetadataFindingNames.StrippedMetadata,
+            "Parte dos metadados parece ter sido removida seletivamente.",
+            evidences);
+    }
+
+    /// <summary>
+    /// Avisos do ExifTool ao ler o arquivo, registrados como fato (Neutral). Não interpreta a
+    /// estrutura: isso é do analisador de estrutura JPEG, que faz a própria análise dos marcadores
+    /// e não deve reaproveitar estes avisos. O Evidence Aggregator cruza os dois.
+    /// </summary>
+    public static AnalyzerFinding? ReadWarnings(NormalizedMetadata metadata)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+
+        if (metadata.Warnings.Count == 0)
+            return null;
+
+        var evidences = metadata.Warnings.Select(warning => new AnalyzerEvidence(
+            MetadataEvidenceNames.ExifToolWarning,
+            $"O ExifTool emitiu um aviso ao ler o arquivo: {warning}",
+            EvidenceStrength.Low,
+            EvidenceDirection.Neutral));
+
+        return new AnalyzerFinding(
+            MetadataFindingNames.ReadWarnings,
+            "A leitura dos metadados gerou avisos sobre a estrutura do arquivo.",
+            evidences);
+    }
+
+    private static bool HasCaptureMetadata(NormalizedMetadata metadata) =>
+        metadata.Make is not null
+        || metadata.Model is not null
+        || metadata.Software.Count > 0
+        || metadata.DateTimeOriginal is not null
+        || metadata.CreateDate is not null
+        || metadata.ModifyDate is not null
+        || metadata.HasThumbnail
+        || metadata.HasGps
+        || metadata.CaptureDevice is not null
+        || metadata.DeclaredDimensions is not null;
+
+    private static AnalyzerEvidence StrippedEvidence(string name, string description) =>
+        new(name, description, EvidenceStrength.Low, EvidenceDirection.SupportsManipulation);
+
     // Tags gravadas pela câmera em instantes levemente diferentes podem divergir em 1-2 s.
     public static readonly TimeSpan DateTolerance = TimeSpan.FromSeconds(2);
 
