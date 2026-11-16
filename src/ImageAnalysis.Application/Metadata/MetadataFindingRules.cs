@@ -190,15 +190,22 @@ public static class MetadataFindingRules
 
         var evidences = metadata.Warnings.Select(warning => new AnalyzerEvidence(
             MetadataEvidenceNames.ExifToolWarning,
-            $"O ExifTool emitiu um aviso ao ler o arquivo: {FileValue(warning)}",
+            IsMinorWarning(warning)
+                ? $"O ExifTool emitiu um aviso menor ao ler os metadados, que não indica problema na imagem: {FileValue(warning)}"
+                : $"O ExifTool emitiu um aviso ao ler o arquivo: {FileValue(warning)}",
             EvidenceStrength.Low,
             EvidenceDirection.Neutral));
 
         return new AnalyzerFinding(
             MetadataFindingNames.ReadWarnings,
-            "A leitura dos metadados gerou avisos sobre a estrutura do arquivo.",
+            "A leitura dos metadados gerou avisos do ExifTool.",
             evidences);
     }
+
+    // O ExifTool marca com "[minor]" os avisos que ele mesmo considera sem importância
+    // (ex.: "[minor] Possibly incorrect maker notes offsets").
+    private static bool IsMinorWarning(string warning) =>
+        warning.StartsWith("[minor]", StringComparison.OrdinalIgnoreCase);
 
     // Bloco EXIF de captura: datas (mesmo inválidas, a tag existe) ou dimensões declaradas.
     // Faz parte de HasCaptureMetadata, o que garante que StrippedMetadata (que exige este bloco)

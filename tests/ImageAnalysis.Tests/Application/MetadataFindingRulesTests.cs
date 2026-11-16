@@ -768,6 +768,32 @@ public class MetadataFindingRulesTests
     }
 
     [Fact]
+    public void ReadWarnings_AvisoMenor_DescricaoDizQueNaoIndicaProblema()
+    {
+        var metadata = new NormalizedMetadata { Warnings = ["[minor] Possibly incorrect maker notes offsets"] };
+
+        var finding = MetadataFindingRules.ReadWarnings(metadata);
+
+        Assert.NotNull(finding);
+        Assert.DoesNotContain("estrutura", finding.Description);
+
+        var evidence = Assert.Single(finding.Evidences);
+        Assert.Equal(EvidenceDirection.Neutral, evidence.Direction);
+        Assert.Contains("não indica problema na imagem", evidence.Description);
+        Assert.Contains("[minor] Possibly incorrect maker notes offsets", evidence.Description);
+    }
+
+    [Fact]
+    public void ReadWarnings_AvisoNormal_NaoUsaTextoDeAvisoMenor()
+    {
+        var metadata = new NormalizedMetadata { Warnings = ["JPEG format error"] };
+
+        var evidence = Assert.Single(MetadataFindingRules.ReadWarnings(metadata)!.Evidences);
+
+        Assert.DoesNotContain("aviso menor", evidence.Description);
+    }
+
+    [Fact]
     public void ReadWarnings_MetadataNulo_LancaExcecao()
     {
         Assert.Throws<ArgumentNullException>(() => MetadataFindingRules.ReadWarnings(null!));

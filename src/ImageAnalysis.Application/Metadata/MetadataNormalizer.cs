@@ -66,7 +66,7 @@ public static class MetadataNormalizer
             DateTimeOriginal = Date(tags, "ExifIFD:DateTimeOriginal", "ExifIFD:OffsetTimeOriginal"),
             CreateDate = Date(tags, "ExifIFD:CreateDate", "ExifIFD:OffsetTimeDigitized"),
             ModifyDate = Date(tags, "IFD0:ModifyDate", "ExifIFD:OffsetTime"),
-            CaptureDevice = CaptureDevice(FirstText(tags, FileSourceTags)),
+            CaptureDevice = ParseCaptureDevice(FirstText(tags, FileSourceTags)),
             HasJfif = tags.Keys.Any(key => key.StartsWith(JfifGroupPrefix, StringComparison.Ordinal)),
             JfifVersion = Text(tags, JfifVersionTag),
             HasThumbnail = ThumbnailTags.Any(tags.ContainsKey),
@@ -166,14 +166,14 @@ public static class MetadataNormalizer
     // FileSource (EXIF 2.32): 1 = scanner de filme, 2 = scanner de papel, 3 = câmera digital.
     // Sem -n o ExifTool escreve o nome ("Film Scanner", "Reflection Print Scanner",
     // "Digital Camera", "Sigma Digital Camera"); com -n, o número. Os dois são aceitos.
-    private static CaptureDevice? CaptureDevice(string? fileSource) =>
+    private static CaptureDevice? ParseCaptureDevice(string? fileSource) =>
         fileSource switch
         {
             null => null,
-            "1" or "2" => Metadata.CaptureDevice.Scanner,
-            "3" => Metadata.CaptureDevice.Camera,
-            _ when fileSource.Contains("Scanner", StringComparison.OrdinalIgnoreCase) => Metadata.CaptureDevice.Scanner,
-            _ when fileSource.Contains("Camera", StringComparison.OrdinalIgnoreCase) => Metadata.CaptureDevice.Camera,
+            "1" or "2" => CaptureDevice.Scanner,
+            "3" => CaptureDevice.Camera,
+            _ when fileSource.Contains("Scanner", StringComparison.OrdinalIgnoreCase) => CaptureDevice.Scanner,
+            _ when fileSource.Contains("Camera", StringComparison.OrdinalIgnoreCase) => CaptureDevice.Camera,
             _ => null
         };
 
