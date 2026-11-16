@@ -17,7 +17,16 @@ public static class KnownSoftware
     private static readonly Regex AiGeneratorPattern = Build(
         "Midjourney", "DALL-E", "DALL·E", "Stable Diffusion", "Firefly", "ComfyUI");
 
+    // Marcas e linhas de scanners, verificadas em Make e Model. Só nomes exclusivos de scanner:
+    // "Canon", "Nikon" e "Epson" sozinhos também são câmeras ou impressoras e ficam de fora.
+    private static readonly Regex ScannerPattern = Build(
+        "Scanner", "CanoScan", "Coolscan", "Perfection", "OpticFilm", "Plustek", "ScanSnap",
+        "Scanjet", "FastFoto", "Flextight", "Imacon", "Pakon", "Noritsu", "DocuMate");
+
     public static bool IsEditor(string? software) => Matches(software, EditorPattern);
+
+    // Para Make/Model, quando a tag FileSource não existe.
+    public static bool IsScanner(string? device) => Matches(device, ScannerPattern);
 
     public static bool IsAiGenerator(string? software) => Matches(software, AiGeneratorPattern);
 

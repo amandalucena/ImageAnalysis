@@ -61,6 +61,43 @@ public class KnownSoftwareTests
         Assert.False(KnownSoftware.IsAiGenerator(software));
     }
 
+    [Theory]
+    [InlineData("EPSON Perfection V600")]
+    [InlineData("CanoScan LiDE 400")]
+    [InlineData("Nikon SUPER COOLSCAN 5000 ED")]
+    [InlineData("Plustek OpticFilm 8200i")]
+    [InlineData("FUJITSU ScanSnap iX1600")]
+    [InlineData("HP Scanjet G4050")]
+    [InlineData("Epson FastFoto FF-680W")]
+    [InlineData("Generic Flatbed Scanner")]
+    public void IsScanner_MakeOuModelDeScanner_RetornaTrue(string device)
+    {
+        Assert.True(KnownSoftware.IsScanner(device));
+    }
+
+    [Theory]
+    [InlineData("Canon")]
+    [InlineData("Canon EOS R5")]
+    [InlineData("NIKON CORPORATION")]
+    [InlineData("NIKON D850")]
+    [InlineData("EPSON")]
+    [InlineData("Apple")]
+    [InlineData("iPhone 13")]
+    [InlineData("Scanners")]       // palavra diferente
+    public void IsScanner_MakeOuModelDeCamera_RetornaFalse(string device)
+    {
+        Assert.False(KnownSoftware.IsScanner(device));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void IsScanner_ValorVazio_RetornaFalse(string? device)
+    {
+        Assert.False(KnownSoftware.IsScanner(device));
+    }
+
     [Fact]
     public void ValorComEditorEGerador_CorrespondeAosDois()
     {

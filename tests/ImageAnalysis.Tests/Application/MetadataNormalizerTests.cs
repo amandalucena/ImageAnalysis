@@ -290,6 +290,55 @@ public class MetadataNormalizerTests
         Assert.Throws<ArgumentNullException>(() => MetadataNormalizer.Normalize(null!));
     }
 
+    [Theory]
+    [InlineData("Digital Camera", CaptureDevice.Camera)]
+    [InlineData("Sigma Digital Camera", CaptureDevice.Camera)]
+    [InlineData("Film Scanner", CaptureDevice.Scanner)]
+    [InlineData("Reflection Print Scanner", CaptureDevice.Scanner)]
+    public void Normalize_FileSourceTexto_IdentificaODispositivo(string fileSource, CaptureDevice expected)
+    {
+        var metadata = Normalize($$"""[{ "ExifIFD:FileSource": "{{fileSource}}" }]""");
+
+        Assert.Equal(expected, metadata.CaptureDevice);
+    }
+
+    [Theory]
+    [InlineData(1, CaptureDevice.Scanner)]
+    [InlineData(2, CaptureDevice.Scanner)]
+    [InlineData(3, CaptureDevice.Camera)]
+    public void Normalize_FileSourceNumerico_IdentificaODispositivo(int fileSource, CaptureDevice expected)
+    {
+        var metadata = Normalize($$"""[{ "ExifIFD:FileSource": {{fileSource}} }]""");
+
+        Assert.Equal(expected, metadata.CaptureDevice);
+    }
+
+    [Fact]
+    public void Normalize_FileSourceSoNoXmp_UsaOXmp()
+    {
+        var metadata = Normalize("""[{ "XMP-exif:FileSource": "Film Scanner" }]""");
+
+        Assert.Equal(CaptureDevice.Scanner, metadata.CaptureDevice);
+    }
+
+    [Fact]
+    public void Normalize_FileSourceNoExifENoXmp_ExifVence()
+    {
+        var metadata = Normalize("""[{ "XMP-exif:FileSource": "Film Scanner", "ExifIFD:FileSource": "Digital Camera" }]""");
+
+        Assert.Equal(CaptureDevice.Camera, metadata.CaptureDevice);
+    }
+
+    [Theory]
+    [InlineData("""[{ "SourceFile": "-" }]""")]
+    [InlineData("""[{ "ExifIFD:FileSource": 0 }]""")]
+    [InlineData("""[{ "ExifIFD:FileSource": "Unknown (7)" }]""")]
+    [InlineData("""[{ "ExifIFD:FileSource": "  " }]""")]
+    public void Normalize_FileSourceAusenteOuDesconhecido_Null(string json)
+    {
+        Assert.Null(Normalize(json).CaptureDevice);
+    }
+
     private static NormalizedMetadata Normalize(string json) => MetadataNormalizer.Normalize(new RawMetadata(json));
 
     private static string Fixture(string name) =>
