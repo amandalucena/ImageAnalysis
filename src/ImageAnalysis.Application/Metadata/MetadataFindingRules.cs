@@ -11,6 +11,28 @@ namespace ImageAnalysis.Application.Metadata;
 public static class MetadataFindingRules
 {
     /// <summary>
+    /// Aplica todas as regras e junta os achados. A ordem é fixa para que o laudo e os testes
+    /// sejam estáveis; uma regra nova entra aqui.
+    /// </summary>
+    public static AnalyzerResult Evaluate(NormalizedMetadata metadata)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+
+        AnalyzerFinding?[] findings =
+        [
+            AiGenerator(metadata),
+            EditingSoftware(metadata),
+            InconsistentDates(metadata),
+            StrippedMetadata(metadata),
+            MetadataUnavailable(metadata),
+            ReadWarnings(metadata)
+        ];
+
+        var found = findings.OfType<AnalyzerFinding>().ToArray();
+        return found.Length == 0 ? AnalyzerResult.Empty : new AnalyzerResult(found);
+    }
+
+    /// <summary>
     /// Software de edição em Software/CreatorTool. Editor é Medium, não High: Lightroom e
     /// apps de celular também fazem ajustes legítimos. Valores divergentes entre as fontes
     /// reforçam o achado (Low), mas sozinhos não o geram.

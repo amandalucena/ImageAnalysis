@@ -1,4 +1,6 @@
+using ImageAnalysis.Application.Metadata;
 using ImageAnalysis.Application.UseCases.CreateImageAnalysis;
+using ImageAnalysis.Domain.Interfaces;
 using ImageAnalysis.Application.UseCases.GetAnalysisStatus;
 using ImageAnalysis.Application.UseCases.ProcessImageAnalysis;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,6 +18,12 @@ public static class DependencyInjection
         services.AddScoped<CreateImageAnalysis>();
         services.AddScoped<GetAnalysisStatus>();
         services.AddScoped<ProcessImageAnalysis>();
+
+        // O concreto é pedido por quem precisa do dump e dos metadados normalizados (7.5);
+        // a orquestração dos analisadores (#48) recebe a lista de IImageAnalyzer.
+        // As duas formas resolvem a mesma instância dentro do escopo.
+        services.AddScoped<MetadataAnalyzer>();
+        services.AddScoped<IImageAnalyzer>(sp => sp.GetRequiredService<MetadataAnalyzer>());
 
         return services;
     }
