@@ -1,5 +1,7 @@
 using ImageAnalysis.Application.Exceptions;
+using System.Text;
 using ImageAnalysis.Application.Metadata;
+using ImageAnalysis.Application.Storage;
 using ImageAnalysis.Application.UseCases.ProcessImageAnalysis;
 using ImageAnalysis.Domain.Entities;
 using ImageAnalysis.Domain.Enums;
@@ -16,7 +18,10 @@ public class ProcessImageAnalysisTests
 
     private readonly FakeAnalysisRepository _repository = new();
     private readonly FakeImageStorage _storage = new();
-    private readonly FakeMetadataExtractor _extractor = new();
+    private readonly FakeMetadataExtractor _extractor = new() { Json = MetadataJson };
+
+    // Dump mínimo com as dimensões que o SetMetadata exige.
+    private const string MetadataJson = """[{ "SourceFile": "-", "File:ImageWidth": 800, "File:ImageHeight": 600 }]""";
 
     [Fact]
     public async Task ExecuteAsync_AnalisePendente_GravaProcessingEDepoisCompleted()
@@ -97,6 +102,66 @@ public class ProcessImageAnalysisTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_AnalisePendente_GravaDumpNoStorageSemAlteracoes()
+    {
+        var analysis = AddAnalysis();
+
+        await Execute(analysis.Id);
+
+        var saved = _storage.Files[AnalysisStorageKeys.RawMetadata(analysis.Id)];
+        Assert.Equal(Encoding.UTF8.GetBytes(MetadataJson), saved);
+        Assert.False(saved.AsSpan().StartsWith(Encoding.UTF8.Preamble), "O metadata.json não deve ter BOM.");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AnalisePendente_DefineMetadataComCaminhoDoDumpEDimensoes()
+    {
+        var analysis = AddAnalysis();
+
+        await Execute(analysis.Id);
+
+        Assert.NotNull(analysis.Metadata);
+        Assert.Equal(AnalysisStorageKeys.RawMetadata(analysis.Id), analysis.Metadata.RawMetadataPath);
+        Assert.Equal(new ImageDimensions(800, 600), analysis.Metadata.Dimensions);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AnalisePendente_MetadataEntraNaGravacaoFinal()
+    {
+        var analysis = AddAnalysis();
+
+        await Execute(analysis.Id);
+
+        Assert.Null(_repository.SavedMetadata[0]);
+        Assert.Same(analysis.Metadata, _repository.SavedMetadata[1]);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_FalhaAoGravarDump_GravaFailedSemMetadata()
+    {
+        var analysis = AddAnalysis();
+        _storage.Files[AnalysisStorageKeys.RawMetadata(analysis.Id)] = [];
+
+        var outcome = await Execute(analysis.Id);
+
+        Assert.Equal(ProcessImageAnalysisOutcome.Failed, outcome);
+        Assert.Equal(AnalysisStatus.Failed, analysis.Status);
+        Assert.Null(analysis.Metadata);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ExtracaoFalha_NaoGravaDumpNemMetadata()
+    {
+        var analysis = AddAnalysis();
+        _extractor.Exception = new MetadataExtractionException(MetadataExtractionFailure.ToolFailed, "Exit code 1.");
+
+        await Execute(analysis.Id);
+
+        Assert.False(_storage.Files.ContainsKey(AnalysisStorageKeys.RawMetadata(analysis.Id)));
+        Assert.Null(analysis.Metadata);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_AnaliseInexistente_RetornaNotFoundSemGravar()
     {
         var outcome = await Execute(Guid.NewGuid());
@@ -173,7 +238,7 @@ public class ProcessImageAnalysisTests
     }
 
     private ProcessImageAnalysis CreateUseCase() =>
-        new(_repository, new MetadataAnalyzer(_storage, _extractor), NullLogger<ProcessImageAnalysis>.Instance);
+        new(_repository, new MetadataAnalyzer(_storage, _extractor), _storage, NullLogger<ProcessImageAnalysis>.Instance);
 
     private Task<ProcessImageAnalysisOutcome> Execute(Guid analysisId) =>
         CreateUseCase().ExecuteAsync(new ProcessImageAnalysisCommand(analysisId));

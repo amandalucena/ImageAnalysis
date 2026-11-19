@@ -1,4 +1,6 @@
+using System.Text;
 using ImageAnalysis.Application.Metadata;
+using ImageAnalysis.Application.Storage;
 using ImageAnalysis.Domain.Entities;
 using ImageAnalysis.Domain.Enums;
 using ImageAnalysis.Domain.Exceptions;
@@ -10,14 +12,16 @@ namespace ImageAnalysis.Application.UseCases.ProcessImageAnalysis;
 
 /// <summary>
 /// Processa uma análise recebida da fila, conduzindo o ciclo de vida
-/// Pending → Processing → Completed, ou Failed em caso de erro. Executa o MetadataAnalyzer;
-/// a consolidação dos achados num resultado ainda não existe (#43–#45), então a análise
-/// conclui com um resultado Inconclusive.
+/// Pending → Processing → Completed, ou Failed em caso de erro. Executa o MetadataAnalyzer,
+/// grava o dump bruto em analysis-{id}/metadata.json e registra o ImageMetadata. A consolidação
+/// dos achados num resultado ainda não existe (#43–#45), então a análise conclui com um
+/// resultado Inconclusive.
 /// </summary>
 public class ProcessImageAnalysis
 {
     private readonly IAnalysisRepository _analysisRepository;
     private readonly MetadataAnalyzer _metadataAnalyzer;
+    private readonly IImageStorage _storage;
     private readonly ILogger<ProcessImageAnalysis> _logger;
 
     // MetadataAnalyzer concreto, e não IImageAnalyzer: só o AnalyzeMetadataAsync devolve
@@ -25,10 +29,12 @@ public class ProcessImageAnalysis
     public ProcessImageAnalysis(
         IAnalysisRepository analysisRepository,
         MetadataAnalyzer metadataAnalyzer,
+        IImageStorage storage,
         ILogger<ProcessImageAnalysis> logger)
     {
         _analysisRepository = analysisRepository;
         _metadataAnalyzer = metadataAnalyzer;
+        _storage = storage;
         _logger = logger;
     }
 
@@ -73,11 +79,13 @@ public class ProcessImageAnalysis
     {
         try
         {
-            // O dump e os achados ainda não são aplicados no agregado (7.5 T3 e item 2).
+            // Os achados ainda não são aplicados no agregado (7.5 item 2).
             // TODO(7.5 item 3): um cancelamento aqui (encerramento do host) cai no catch
             // abaixo e marca a análise como AnalyzerCrashed.
-            await _metadataAnalyzer.AnalyzeMetadataAsync(
+            var metadata = await _metadataAnalyzer.AnalyzeMetadataAsync(
                 new AnalyzerContext(analysis.Id, analysis.Image), cancellationToken);
+
+            await SaveMetadataAsync(analysis, metadata, cancellationToken);
 
             analysis.Complete(
                 AnalysisResultStatus.Inconclusive,
@@ -98,5 +106,22 @@ public class ProcessImageAnalysis
 
             return ProcessImageAnalysisOutcome.Failed;
         }
+    }
+
+    // O storage é gravado antes do agregado: o RawMetadataPath nunca aponta para um arquivo
+    // que não existe. O ImageMetadata vai para o banco no UpdateAsync final, junto com o resto.
+    private async Task SaveMetadataAsync(Analysis analysis, MetadataAnalysis metadata, CancellationToken cancellationToken)
+    {
+        var key = AnalysisStorageKeys.RawMetadata(analysis.Id);
+
+        // GetBytes não escreve BOM: o arquivo é o texto do ExifTool em UTF-8, sem acréscimos.
+        await using (var content = new MemoryStream(Encoding.UTF8.GetBytes(metadata.Raw.Json), writable: false))
+        {
+            await _storage.SaveAsync(key, content, cancellationToken);
+        }
+
+        // TODO(7.5 T4): sem dimensões o SetMetadata lança exceção e o metadata.json gravado
+        // acima fica sem referência; a checagem precisa vir antes do SaveAsync.
+        analysis.SetMetadata(key, metadata.Normalized.Dimensions!);
     }
 }
