@@ -1,4 +1,5 @@
 using System.Text;
+using ImageAnalysis.Application.Exceptions;
 using ImageAnalysis.Application.Metadata;
 using ImageAnalysis.Application.Pipeline;
 using ImageAnalysis.Application.Storage;
@@ -81,8 +82,6 @@ public class ProcessImageAnalysis
     {
         try
         {
-            // TODO(7.5 item 3): um cancelamento aqui (encerramento do host) cai no catch
-            // abaixo e marca a análise como AnalyzerCrashed.
             var metadata = await _metadataAnalyzer.AnalyzeMetadataAsync(
                 new AnalyzerContext(analysis.Id, analysis.Image), cancellationToken);
 
@@ -117,18 +116,47 @@ public class ProcessImageAnalysis
 
             return ProcessImageAnalysisOutcome.Completed;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Encerramento do host: não é falha da análise. Ela fica em Processing, sem gravação
+            // final, e o Worker não confirma a mensagem. Marcar Failed impediria a recuperação
+            // dessas análises, que é escopo da #65.
+            throw;
+        }
         catch (Exception ex)
         {
-            // O detalhe técnico fica no log; a análise guarda só uma mensagem segura para exibição.
-            _logger.LogError(ex, "Erro ao processar a análise {AnalysisId}.", analysis.Id);
+            var failure = ToFailure(ex);
 
-            analysis.Fail(new AnalysisFailure(
-                AnalysisFailureType.AnalyzerCrashed,
-                "Ocorreu um erro durante o processamento da análise."));
+            // O detalhe técnico fica no log; a análise guarda só uma mensagem segura para exibição.
+            _logger.LogError(ex, "Erro ao processar a análise {AnalysisId} ({FailureType}).", analysis.Id, failure.Type);
+
+            analysis.Fail(failure);
 
             return ProcessImageAnalysisOutcome.Failed;
         }
     }
+
+    // A imagem ilegível é problema do arquivo enviado; storage e ferramenta são problemas do
+    // sistema. Os erros de escrita no stdin do ExifTool são tratados no extrator, então uma
+    // IOException que chega aqui vem do storage (leitura da imagem ou gravação do dump).
+    private static AnalysisFailure ToFailure(Exception exception) => exception switch
+    {
+        MetadataExtractionException { Failure: MetadataExtractionFailure.UnreadableImage } => new(
+            AnalysisFailureType.InvalidImageFormat,
+            "Não foi possível ler a imagem enviada."),
+
+        MetadataExtractionException => new(
+            AnalysisFailureType.AnalyzerCrashed,
+            "Não foi possível extrair os metadados da imagem."),
+
+        IOException or UnauthorizedAccessException => new(
+            AnalysisFailureType.StorageUnavailable,
+            "Não foi possível acessar o armazenamento de arquivos."),
+
+        _ => new(
+            AnalysisFailureType.AnalyzerCrashed,
+            "Ocorreu um erro durante o processamento da análise."),
+    };
 
     // O storage é gravado antes do agregado: o RawMetadataPath nunca aponta para um arquivo
     // que não existe. O ImageMetadata vai para o banco no UpdateAsync final, junto com o resto.

@@ -98,6 +98,7 @@ public class ProcessImageAnalysisTests
 
         Assert.Equal(ProcessImageAnalysisOutcome.Failed, outcome);
         Assert.Equal(AnalysisStatus.Failed, analysis.Status);
+        Assert.Equal(AnalysisFailureType.StorageUnavailable, analysis.Failure?.Type);
         Assert.Equal(0, _extractor.Calls);
     }
 
@@ -146,6 +147,7 @@ public class ProcessImageAnalysisTests
 
         Assert.Equal(ProcessImageAnalysisOutcome.Failed, outcome);
         Assert.Equal(AnalysisStatus.Failed, analysis.Status);
+        Assert.Equal(AnalysisFailureType.StorageUnavailable, analysis.Failure?.Type);
         Assert.Null(analysis.Metadata);
     }
 
@@ -242,6 +244,82 @@ public class ProcessImageAnalysisTests
 
         Assert.Equal(AnalysisStatus.Failed, analysis.Status);
         Assert.Empty(analysis.Findings);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ImagemIlegivel_GravaFailedComInvalidImageFormat()
+    {
+        var analysis = AddAnalysis();
+        _extractor.Exception = new MetadataExtractionException(MetadataExtractionFailure.UnreadableImage, "File format error.");
+
+        await Execute(analysis.Id);
+
+        Assert.Equal(AnalysisFailureType.InvalidImageFormat, analysis.Failure?.Type);
+    }
+
+    [Theory]
+    [InlineData(MetadataExtractionFailure.ToolUnavailable)]
+    [InlineData(MetadataExtractionFailure.Timeout)]
+    [InlineData(MetadataExtractionFailure.ToolFailed)]
+    public async Task ExecuteAsync_FalhaDaFerramenta_GravaFailedComAnalyzerCrashed(MetadataExtractionFailure failure)
+    {
+        var analysis = AddAnalysis();
+        _extractor.Exception = new MetadataExtractionException(failure, "Detalhe técnico.");
+
+        await Execute(analysis.Id);
+
+        Assert.Equal(AnalysisFailureType.AnalyzerCrashed, analysis.Failure?.Type);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ErroInesperado_GravaFailedComAnalyzerCrashed()
+    {
+        var analysis = AddAnalysis();
+        _extractor.Exception = new InvalidOperationException("Erro inesperado.");
+
+        await Execute(analysis.Id);
+
+        Assert.Equal(AnalysisFailureType.AnalyzerCrashed, analysis.Failure?.Type);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_MensagemDaFalhaNaoExpoeDetalheTecnico()
+    {
+        var analysis = AddAnalysis();
+        _extractor.Exception = new MetadataExtractionException(MetadataExtractionFailure.ToolFailed, "exiftool: exit code 1 em /usr/bin");
+
+        await Execute(analysis.Id);
+
+        Assert.NotNull(analysis.Failure);
+        Assert.DoesNotContain("exit code", analysis.Failure.Message);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CanceladoDuranteAExtracao_PropagaSemGravarFalha()
+    {
+        var analysis = AddAnalysis();
+        using var stopping = new CancellationTokenSource();
+        stopping.Cancel();
+        _extractor.Exception = new OperationCanceledException(stopping.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            CreateUseCase().ExecuteAsync(new ProcessImageAnalysisCommand(analysis.Id), stopping.Token));
+
+        Assert.Equal([AnalysisStatus.Processing], _repository.SavedStatuses);
+        Assert.Equal(AnalysisStatus.Processing, analysis.Status);
+        Assert.Null(analysis.Failure);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CancelamentoQueNaoVemDoHost_GravaFailedComAnalyzerCrashed()
+    {
+        var analysis = AddAnalysis();
+        _extractor.Exception = new OperationCanceledException();
+
+        var outcome = await Execute(analysis.Id);
+
+        Assert.Equal(ProcessImageAnalysisOutcome.Failed, outcome);
+        Assert.Equal(AnalysisFailureType.AnalyzerCrashed, analysis.Failure?.Type);
     }
 
     [Fact]
