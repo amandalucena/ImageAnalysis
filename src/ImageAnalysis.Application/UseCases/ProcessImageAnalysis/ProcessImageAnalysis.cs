@@ -85,7 +85,23 @@ public class ProcessImageAnalysis
             var metadata = await _metadataAnalyzer.AnalyzeMetadataAsync(
                 new AnalyzerContext(analysis.Id, analysis.Image), cancellationToken);
 
-            await SaveMetadataAsync(analysis, metadata, cancellationToken);
+            // Sem dimensões o ExifTool leu o arquivo, mas não a estrutura da imagem (ex.: JPEG
+            // malformado). A checagem vem antes do storage para não deixar um metadata.json órfão.
+            // Isso descarta o achado de aviso de leitura desse arquivo; mantê-lo exigiria
+            // dimensões opcionais no ImageMetadata.
+            if (metadata.Normalized.Dimensions is not { } dimensions)
+            {
+                _logger.LogWarning(
+                    "A análise {AnalysisId} falhou: o ExifTool não devolveu as dimensões da imagem.", analysis.Id);
+
+                analysis.Fail(new AnalysisFailure(
+                    AnalysisFailureType.InvalidImageFormat,
+                    "Não foi possível ler a estrutura da imagem."));
+
+                return ProcessImageAnalysisOutcome.Failed;
+            }
+
+            await SaveMetadataAsync(analysis, metadata.Raw, dimensions, cancellationToken);
 
             analysis.Complete(
                 AnalysisResultStatus.Inconclusive,
@@ -110,18 +126,17 @@ public class ProcessImageAnalysis
 
     // O storage é gravado antes do agregado: o RawMetadataPath nunca aponta para um arquivo
     // que não existe. O ImageMetadata vai para o banco no UpdateAsync final, junto com o resto.
-    private async Task SaveMetadataAsync(Analysis analysis, MetadataAnalysis metadata, CancellationToken cancellationToken)
+    private async Task SaveMetadataAsync(
+        Analysis analysis, RawMetadata raw, ImageDimensions dimensions, CancellationToken cancellationToken)
     {
         var key = AnalysisStorageKeys.RawMetadata(analysis.Id);
 
         // GetBytes não escreve BOM: o arquivo é o texto do ExifTool em UTF-8, sem acréscimos.
-        await using (var content = new MemoryStream(Encoding.UTF8.GetBytes(metadata.Raw.Json), writable: false))
+        await using (var content = new MemoryStream(Encoding.UTF8.GetBytes(raw.Json), writable: false))
         {
             await _storage.SaveAsync(key, content, cancellationToken);
         }
 
-        // TODO(7.5 T4): sem dimensões o SetMetadata lança exceção e o metadata.json gravado
-        // acima fica sem referência; a checagem precisa vir antes do SaveAsync.
-        analysis.SetMetadata(key, metadata.Normalized.Dimensions!);
+        analysis.SetMetadata(key, dimensions);
     }
 }

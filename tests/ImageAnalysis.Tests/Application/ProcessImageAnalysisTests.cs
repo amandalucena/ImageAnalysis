@@ -162,6 +162,22 @@ public class ProcessImageAnalysisTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_DumpSemDimensoes_GravaFailedComInvalidImageFormat()
+    {
+        var analysis = AddAnalysis();
+        _extractor.Json = ReadMetadataJson("jpeg-format-warning.json");
+
+        var outcome = await Execute(analysis.Id);
+
+        Assert.Equal(ProcessImageAnalysisOutcome.Failed, outcome);
+        Assert.Equal([AnalysisStatus.Processing, AnalysisStatus.Failed], _repository.SavedStatuses);
+        Assert.Equal(AnalysisFailureType.InvalidImageFormat, analysis.Failure?.Type);
+        Assert.Null(analysis.Result);
+        Assert.Null(analysis.Metadata);
+        Assert.False(_storage.Files.ContainsKey(AnalysisStorageKeys.RawMetadata(analysis.Id)));
+    }
+
+    [Fact]
     public async Task ExecuteAsync_AnaliseInexistente_RetornaNotFoundSemGravar()
     {
         var outcome = await Execute(Guid.NewGuid());
@@ -236,6 +252,10 @@ public class ProcessImageAnalysisTests
         _storage.Files[image.StoragePath] = ImageBytes;
         return analysis;
     }
+
+    // Saídas reais do ExifTool (ver MetadataNormalizerTests).
+    private static string ReadMetadataJson(string name) =>
+        File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "MetadataJson", name));
 
     private ProcessImageAnalysis CreateUseCase() =>
         new(_repository, new MetadataAnalyzer(_storage, _extractor), _storage, NullLogger<ProcessImageAnalysis>.Instance);
