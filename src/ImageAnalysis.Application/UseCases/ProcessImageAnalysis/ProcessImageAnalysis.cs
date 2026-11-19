@@ -1,5 +1,6 @@
 using System.Text;
 using ImageAnalysis.Application.Metadata;
+using ImageAnalysis.Application.Pipeline;
 using ImageAnalysis.Application.Storage;
 using ImageAnalysis.Domain.Entities;
 using ImageAnalysis.Domain.Enums;
@@ -13,7 +14,8 @@ namespace ImageAnalysis.Application.UseCases.ProcessImageAnalysis;
 /// <summary>
 /// Processa uma análise recebida da fila, conduzindo o ciclo de vida
 /// Pending → Processing → Completed, ou Failed em caso de erro. Executa o MetadataAnalyzer,
-/// grava o dump bruto em analysis-{id}/metadata.json e registra o ImageMetadata. A consolidação
+/// grava o dump bruto em analysis-{id}/metadata.json e registra o ImageMetadata e os achados
+/// com suas evidências. A consolidação
 /// dos achados num resultado ainda não existe (#43–#45), então a análise conclui com um
 /// resultado Inconclusive.
 /// </summary>
@@ -79,7 +81,6 @@ public class ProcessImageAnalysis
     {
         try
         {
-            // Os achados ainda não são aplicados no agregado (7.5 item 2).
             // TODO(7.5 item 3): um cancelamento aqui (encerramento do host) cai no catch
             // abaixo e marca a análise como AnalyzerCrashed.
             var metadata = await _metadataAnalyzer.AnalyzeMetadataAsync(
@@ -102,6 +103,11 @@ public class ProcessImageAnalysis
             }
 
             await SaveMetadataAsync(analysis, metadata.Raw, dimensions, cancellationToken);
+
+            // Último passo antes do Complete: o Domain não remove achados, então uma falha depois
+            // deste ponto gravaria uma análise Failed com achados. Nada que possa falhar deve
+            // entrar entre esta linha e o Complete.
+            AnalyzerResultApplier.Apply(analysis, _metadataAnalyzer.Source, metadata.Result);
 
             analysis.Complete(
                 AnalysisResultStatus.Inconclusive,

@@ -178,6 +178,73 @@ public class ProcessImageAnalysisTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_DumpComSoftwareDeEdicao_GravaAchadoComEvidencias()
+    {
+        var analysis = AddAnalysis();
+        _extractor.Json = ReadMetadataJson("edited-photoshop.json");
+
+        var outcome = await Execute(analysis.Id);
+
+        Assert.Equal(ProcessImageAnalysisOutcome.Completed, outcome);
+        var finding = Assert.Single(analysis.Findings, f => f.Name == MetadataFindingNames.EditingSoftware);
+        Assert.Equal(SourceFindingType.Metadata, finding.SourceFindingType);
+        Assert.Contains(finding.Evidences, e =>
+            e.Strength == EvidenceStrength.Medium
+            && e.Direction == EvidenceDirection.SupportsManipulation
+            && e.Description.Contains("Adobe Photoshop"));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DumpDeCameraSemSinais_ConcluiSemAchados()
+    {
+        var analysis = AddAnalysis();
+        _extractor.Json = ReadMetadataJson("phone-gps-thumbnail.json");
+
+        var outcome = await Execute(analysis.Id);
+
+        Assert.Equal(ProcessImageAnalysisOutcome.Completed, outcome);
+        Assert.Empty(analysis.Findings);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AchadosEntramSoNaGravacaoFinal()
+    {
+        var analysis = AddAnalysis();
+        _extractor.Json = ReadMetadataJson("edited-photoshop.json");
+
+        await Execute(analysis.Id);
+
+        Assert.Equal(0, _repository.SavedFindingCounts[0]);
+        Assert.Equal(analysis.Findings.Count, _repository.SavedFindingCounts[1]);
+        Assert.NotEmpty(analysis.Findings);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ExtracaoFalha_NaoGravaAchados()
+    {
+        var analysis = AddAnalysis();
+        _extractor.Exception = new MetadataExtractionException(MetadataExtractionFailure.ToolFailed, "Exit code 1.");
+
+        await Execute(analysis.Id);
+
+        Assert.Equal(AnalysisStatus.Failed, analysis.Status);
+        Assert.Empty(analysis.Findings);
+        Assert.Equal(0, _repository.SavedFindingCounts[1]);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DumpSemDimensoes_NaoGravaAchados()
+    {
+        var analysis = AddAnalysis();
+        _extractor.Json = ReadMetadataJson("jpeg-format-warning.json");
+
+        await Execute(analysis.Id);
+
+        Assert.Equal(AnalysisStatus.Failed, analysis.Status);
+        Assert.Empty(analysis.Findings);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_AnaliseInexistente_RetornaNotFoundSemGravar()
     {
         var outcome = await Execute(Guid.NewGuid());
