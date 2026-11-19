@@ -1,3 +1,5 @@
+using ImageAnalysis.Application.Exceptions;
+using ImageAnalysis.Application.Metadata;
 using ImageAnalysis.Application.UseCases.ProcessImageAnalysis;
 using ImageAnalysis.Domain.Entities;
 using ImageAnalysis.Domain.Enums;
@@ -10,7 +12,11 @@ namespace ImageAnalysis.Tests.Application;
 
 public class ProcessImageAnalysisTests
 {
+    private static readonly byte[] ImageBytes = [0xFF, 0xD8, 0xFF, 0xE0, 0xFF, 0xD9];
+
     private readonly FakeAnalysisRepository _repository = new();
+    private readonly FakeImageStorage _storage = new();
+    private readonly FakeMetadataExtractor _extractor = new();
 
     [Fact]
     public async Task ExecuteAsync_AnalisePendente_GravaProcessingEDepoisCompleted()
@@ -27,7 +33,7 @@ public class ProcessImageAnalysisTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_SemAnalisadores_ConcluiComResultadoInconclusivoDeBaixaConfianca()
+    public async Task ExecuteAsync_SemConsolidacaoDosAchados_ConcluiComResultadoInconclusivoDeBaixaConfianca()
     {
         var analysis = AddAnalysis();
 
@@ -45,11 +51,49 @@ public class ProcessImageAnalysisTests
         var analysis = AddAnalysis();
         using var stopping = new CancellationTokenSource();
 
-        await new ProcessImageAnalysis(_repository, NullLogger<ProcessImageAnalysis>.Instance)
+        await CreateUseCase()
             .ExecuteAsync(new ProcessImageAnalysisCommand(analysis.Id), stopping.Token);
 
         Assert.Equal(stopping.Token, _repository.UpdateCancellationTokens[0]);
         Assert.False(_repository.UpdateCancellationTokens[1].CanBeCanceled);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AnalisePendente_ExtraiMetadadosDaImagemOriginalUmaVez()
+    {
+        var analysis = AddAnalysis();
+
+        await Execute(analysis.Id);
+
+        Assert.Equal(1, _extractor.Calls);
+        Assert.Equal(ImageBytes, _extractor.ReceivedImage);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ExtracaoFalha_GravaFailedComAnalyzerCrashed()
+    {
+        var analysis = AddAnalysis();
+        _extractor.Exception = new MetadataExtractionException(MetadataExtractionFailure.ToolFailed, "Exit code 1.");
+
+        var outcome = await Execute(analysis.Id);
+
+        Assert.Equal(ProcessImageAnalysisOutcome.Failed, outcome);
+        Assert.Equal([AnalysisStatus.Processing, AnalysisStatus.Failed], _repository.SavedStatuses);
+        Assert.Equal(AnalysisFailureType.AnalyzerCrashed, analysis.Failure?.Type);
+        Assert.Null(analysis.Result);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ImagemAusenteNoStorage_GravaFailed()
+    {
+        var analysis = AddAnalysis();
+        _storage.Files.Clear();
+
+        var outcome = await Execute(analysis.Id);
+
+        Assert.Equal(ProcessImageAnalysisOutcome.Failed, outcome);
+        Assert.Equal(AnalysisStatus.Failed, analysis.Status);
+        Assert.Equal(0, _extractor.Calls);
     }
 
     [Fact]
@@ -124,10 +168,13 @@ public class ProcessImageAnalysisTests
         var image = new ImageFile("foto.jpg", $"uploads/{Guid.NewGuid()}/original.jpg", 1_024, new string('a', 64), "image/jpeg");
         var analysis = new Analysis(null, image);
         _repository.Analyses.Add(analysis);
+        _storage.Files[image.StoragePath] = ImageBytes;
         return analysis;
     }
 
+    private ProcessImageAnalysis CreateUseCase() =>
+        new(_repository, new MetadataAnalyzer(_storage, _extractor), NullLogger<ProcessImageAnalysis>.Instance);
+
     private Task<ProcessImageAnalysisOutcome> Execute(Guid analysisId) =>
-        new ProcessImageAnalysis(_repository, NullLogger<ProcessImageAnalysis>.Instance)
-            .ExecuteAsync(new ProcessImageAnalysisCommand(analysisId));
+        CreateUseCase().ExecuteAsync(new ProcessImageAnalysisCommand(analysisId));
 }
