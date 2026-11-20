@@ -1,6 +1,7 @@
 using ImageAnalysis.Application.Metadata;
 using ImageAnalysis.Application.UseCases.CreateImageAnalysis;
 using ImageAnalysis.Domain.Interfaces;
+using ImageAnalysis.Application.UseCases.GetAnalysisFindings;
 using ImageAnalysis.Application.UseCases.GetAnalysisStatus;
 using ImageAnalysis.Application.UseCases.ProcessImageAnalysis;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,6 +18,7 @@ public static class DependencyInjection
         // Scoped porque dependem do IAnalysisRepository, que usa o DbContext da requisição.
         services.AddScoped<CreateImageAnalysis>();
         services.AddScoped<GetAnalysisStatus>();
+        services.AddScoped<GetAnalysisFindings>();
         services.AddScoped<ProcessImageAnalysis>();
 
         // O concreto é pedido por quem precisa do dump e dos metadados normalizados (7.5);
