@@ -2,7 +2,10 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
+using System.Text.Json;
 using ImageAnalysis.API.Contracts;
+using ImageAnalysis.Application.Metadata;
+using ImageAnalysis.Application.UseCases.GetAnalysisFindings;
 using ImageAnalysis.Application.UseCases.GetAnalysisStatus;
 
 namespace ImageAnalysis.Tests.Api;
@@ -65,14 +68,70 @@ public class AnalysesEndpointTests
     [Fact]
     public async Task Post_AnaliseCriada_WorkerProcessaAteCompleted()
     {
-        var image = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", "Metadata", "camera.jpg"));
-        var id = await CreateAnalysis(Form(image, "camera.jpg"));
+        var id = await CreateAnalysis(Form(ReadImageFixture("camera.jpg"), "camera.jpg"));
 
         var status = await WaitForStatus(id, "Completed", TimeSpan.FromSeconds(30));
 
         Assert.NotNull(status.StartedAt);
         Assert.NotNull(status.FinishedAt);
         Assert.True(status.StartedAt <= status.FinishedAt);
+    }
+
+    // Ponta a ponta: POST → fila → Worker (ExifTool real) → GET dos achados.
+    [Fact]
+    public async Task Post_ImagemEditada_WorkerGravaAchadosConsultaveis()
+    {
+        var id = await CreateAnalysis(Form(ReadImageFixture("edited.jpg"), "edited.jpg"));
+        await WaitForStatus(id, "Completed", TimeSpan.FromSeconds(30));
+
+        var findings = await GetFindings(id);
+
+        Assert.Equal("Completed", findings.Status);
+        var editing = Assert.Single(findings.Findings, f => f.Name == MetadataFindingNames.EditingSoftware);
+        Assert.Equal("Metadata", editing.Source);
+        Assert.Contains(editing.Evidences, e =>
+            e.Name == MetadataEvidenceNames.EditingSoftwareTag
+            && e.Strength == "Medium"
+            && e.Direction == "SupportsManipulation"
+            && e.Description.Contains("Photoshop"));
+    }
+
+    // Contrato com o frontend nos níveis que só aparecem com achados: campos em camelCase e
+    // enums como texto, conferidos no JSON cru.
+    [Fact]
+    public async Task Get_AchadosDeImagemEditada_UsaCamelCaseEEnumsComoTexto()
+    {
+        var id = await CreateAnalysis(Form(ReadImageFixture("edited.jpg"), "edited.jpg"));
+        await WaitForStatus(id, "Completed", TimeSpan.FromSeconds(30));
+
+        var response = await _client.GetAsync($"/analyses/{id}/findings");
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        var finding = json.RootElement.GetProperty("findings").EnumerateArray().First();
+        Assert.Equal(
+            ["id", "name", "source", "description", "evidences"],
+            finding.EnumerateObject().Select(p => p.Name));
+        Assert.Equal(JsonValueKind.String, finding.GetProperty("source").ValueKind);
+
+        var evidence = finding.GetProperty("evidences").EnumerateArray().First();
+        Assert.Equal(
+            ["name", "description", "strength", "direction"],
+            evidence.EnumerateObject().Select(p => p.Name));
+        Assert.Equal(JsonValueKind.String, evidence.GetProperty("strength").ValueKind);
+        Assert.Equal(JsonValueKind.String, evidence.GetProperty("direction").ValueKind);
+    }
+
+    // Contraponto: uma foto de câmera sem sinais de edição conclui sem achados.
+    [Fact]
+    public async Task Post_FotoDeCamera_WorkerConcluiSemAchados()
+    {
+        var id = await CreateAnalysis(Form(ReadImageFixture("camera.jpg"), "camera.jpg"));
+        await WaitForStatus(id, "Completed", TimeSpan.FromSeconds(30));
+
+        var findings = await GetFindings(id);
+
+        Assert.Equal("Completed", findings.Status);
+        Assert.Empty(findings.Findings);
     }
 
     [Fact]
@@ -164,6 +223,57 @@ public class AnalysesEndpointTests
         AssertProblem(response, HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task Get_AchadosDeAnaliseInexistente_Retorna404()
+    {
+        var response = await _client.GetAsync($"/analyses/{Guid.NewGuid()}/findings");
+
+        AssertProblem(response, HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Get_AchadosComIdQueNaoEGuid_Retorna404()
+    {
+        var response = await _client.GetAsync("/analyses/abc/findings");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    // O JpegBytes não tem dimensões, então o Worker marca a análise como Failed. Em qualquer
+    // momento em que o GET chegue (Pending, Processing ou Failed), a lista vem vazia, e o
+    // teste não depende de quando o Worker processa a análise.
+    [Fact]
+    public async Task Get_AchadosDeAnaliseRecemCriada_RetornaStatusESemAchados()
+    {
+        var id = await CreateAnalysis(Form(JpegBytes, "foto.jpg"));
+
+        var findings = await GetFindings(id);
+
+        Assert.Equal(id, findings.AnalysisId);
+        Assert.Contains(findings.Status, new[] { "Pending", "Processing", "Failed" });
+        Assert.Empty(findings.Findings);
+    }
+
+    // Contrato com o frontend: a desserialização do record não diferencia maiúsculas de
+    // minúsculas, então os nomes dos campos são conferidos no JSON cru.
+    [Fact]
+    public async Task Get_Achados_UsaCamposEmCamelCase()
+    {
+        var id = await CreateAnalysis(Form(JpegBytes, "foto.jpg"));
+
+        var response = await _client.GetAsync($"/analyses/{id}/findings");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(
+            ["analysisId", "status", "findings"],
+            json.RootElement.EnumerateObject().Select(p => p.Name));
+        Assert.Equal(JsonValueKind.Array, json.RootElement.GetProperty("findings").ValueKind);
+    }
+
+    private static byte[] ReadImageFixture(string name) =>
+        File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", "Metadata", name));
+
     private static MultipartFormDataContent Form(byte[] content, string fileName, string? name = null)
     {
         var file = new ByteArrayContent(content);
@@ -190,6 +300,14 @@ public class AnalysesEndpointTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         return (await response.Content.ReadFromJsonAsync<AnalysisStatusResult>())!;
+    }
+
+    private async Task<AnalysisFindingsResult> GetFindings(Guid id)
+    {
+        var response = await _client.GetAsync($"/analyses/{id}/findings");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        return (await response.Content.ReadFromJsonAsync<AnalysisFindingsResult>())!;
     }
 
     // O processamento é assíncrono, então o status é consultado até chegar ao esperado.
