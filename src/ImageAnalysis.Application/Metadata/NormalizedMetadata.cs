@@ -20,6 +20,10 @@ public sealed record NormalizedMetadata
     public MetadataDate? CreateDate { get; init; }
     public MetadataDate? ModifyDate { get; init; }
 
+    // Dispositivo declarado na tag FileSource. null quando a tag falta ou tem valor desconhecido;
+    // a heurística por Make/Model (KnownSoftware.IsScanner) fica nas regras, não aqui.
+    public CaptureDevice? CaptureDevice { get; init; }
+
     public bool HasJfif { get; init; }
     public string? JfifVersion { get; init; }
 
@@ -37,6 +41,19 @@ public sealed record NormalizedMetadata
 
     // Avisos do ExifTool ao ler o arquivo (ex.: "JPEG format error").
     public IReadOnlyList<string> Warnings { get; init; } = [];
+}
+
+/// <summary>
+/// Tipo de dispositivo que gerou a imagem, segundo a tag EXIF FileSource.
+/// Em fotos escaneadas, DateTimeOriginal é a data da foto e CreateDate a do scan,
+/// então datas diferentes são esperadas e não indicam manipulação.
+/// </summary>
+public enum CaptureDevice
+{
+    Camera = 0,
+
+    // Scanner de filme ou de papel (foto impressa).
+    Scanner = 1
 }
 
 /// <summary>

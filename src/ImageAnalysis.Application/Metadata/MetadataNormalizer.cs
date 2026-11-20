@@ -25,6 +25,8 @@ public static class MetadataNormalizer
 
     private static readonly string[] ThumbnailTags = ["IFD1:ThumbnailImage", "IFD1:ThumbnailLength"];
 
+    private static readonly string[] FileSourceTags = ["ExifIFD:FileSource", "XMP-exif:FileSource"];
+
     // JPEG e BMP usam o grupo File; PNG e GIF, o grupo do próprio formato.
     private static readonly (string Width, string Height)[] DimensionTags =
     [
@@ -64,6 +66,7 @@ public static class MetadataNormalizer
             DateTimeOriginal = Date(tags, "ExifIFD:DateTimeOriginal", "ExifIFD:OffsetTimeOriginal"),
             CreateDate = Date(tags, "ExifIFD:CreateDate", "ExifIFD:OffsetTimeDigitized"),
             ModifyDate = Date(tags, "IFD0:ModifyDate", "ExifIFD:OffsetTime"),
+            CaptureDevice = ParseCaptureDevice(FirstText(tags, FileSourceTags)),
             HasJfif = tags.Keys.Any(key => key.StartsWith(JfifGroupPrefix, StringComparison.Ordinal)),
             JfifVersion = Text(tags, JfifVersionTag),
             HasThumbnail = ThumbnailTags.Any(tags.ContainsKey),
@@ -159,6 +162,20 @@ public static class MetadataNormalizer
 
         return offset >= TimeSpan.FromHours(-12) && offset <= TimeSpan.FromHours(14) ? offset : null;
     }
+
+    // FileSource (EXIF 2.32): 1 = scanner de filme, 2 = scanner de papel, 3 = câmera digital.
+    // Sem -n o ExifTool escreve o nome ("Film Scanner", "Reflection Print Scanner",
+    // "Digital Camera", "Sigma Digital Camera"); com -n, o número. Os dois são aceitos.
+    private static CaptureDevice? ParseCaptureDevice(string? fileSource) =>
+        fileSource switch
+        {
+            null => null,
+            "1" or "2" => CaptureDevice.Scanner,
+            "3" => CaptureDevice.Camera,
+            _ when fileSource.Contains("Scanner", StringComparison.OrdinalIgnoreCase) => CaptureDevice.Scanner,
+            _ when fileSource.Contains("Camera", StringComparison.OrdinalIgnoreCase) => CaptureDevice.Camera,
+            _ => null
+        };
 
     private static ImageDimensions? Dimensions(Dictionary<string, JsonElement> tags, string widthTag, string heightTag)
     {
