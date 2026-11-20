@@ -137,8 +137,11 @@ public class ProcessImageAnalysis
     }
 
     // A imagem ilegível é problema do arquivo enviado; storage e ferramenta são problemas do
-    // sistema. Os erros de escrita no stdin do ExifTool são tratados no extrator, então uma
-    // IOException que chega aqui vem do storage (leitura da imagem ou gravação do dump).
+    // sistema. Uma IOException que chega aqui vem quase sempre do storage (leitura da imagem ou
+    // gravação do dump): o extrator trata os erros de escrita no stdin do ExifTool. Limitação
+    // conhecida: um erro de leitura no stdout/stderr do ExifTool também é IOException e cai em
+    // StorageUnavailable. Convertê-lo no extrator rotularia errado a leitura da imagem, que
+    // acontece no mesmo trecho.
     private static AnalysisFailure ToFailure(Exception exception) => exception switch
     {
         MetadataExtractionException { Failure: MetadataExtractionFailure.UnreadableImage } => new(
@@ -148,6 +151,12 @@ public class ProcessImageAnalysis
         MetadataExtractionException => new(
             AnalysisFailureType.AnalyzerCrashed,
             "Não foi possível extrair os metadados da imagem."),
+
+        // Antes da IOException, da qual deriva: a imagem sumiu de vez, e uma nova tentativa
+        // não resolveria. A mensagem não deve sugerir indisponibilidade temporária.
+        FileNotFoundException => new(
+            AnalysisFailureType.StorageUnavailable,
+            "A imagem original não foi encontrada no armazenamento."),
 
         IOException or UnauthorizedAccessException => new(
             AnalysisFailureType.StorageUnavailable,

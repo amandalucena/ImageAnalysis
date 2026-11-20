@@ -99,7 +99,20 @@ public class ProcessImageAnalysisTests
         Assert.Equal(ProcessImageAnalysisOutcome.Failed, outcome);
         Assert.Equal(AnalysisStatus.Failed, analysis.Status);
         Assert.Equal(AnalysisFailureType.StorageUnavailable, analysis.Failure?.Type);
+        Assert.Equal("A imagem original não foi encontrada no armazenamento.", analysis.Failure?.Message);
         Assert.Equal(0, _extractor.Calls);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ErroDeLeituraNoStorage_GravaStorageUnavailableComMensagemGenerica()
+    {
+        var analysis = AddAnalysis();
+        _extractor.Exception = new IOException("Disco indisponível.");
+
+        await Execute(analysis.Id);
+
+        Assert.Equal(AnalysisFailureType.StorageUnavailable, analysis.Failure?.Type);
+        Assert.Equal("Não foi possível acessar o armazenamento de arquivos.", analysis.Failure?.Message);
     }
 
     [Fact]
