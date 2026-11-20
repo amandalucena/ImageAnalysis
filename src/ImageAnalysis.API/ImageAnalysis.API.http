@@ -20,4 +20,8 @@ Content-Type: image/jpeg
 GET {{ImageAnalysis.API_HostAddress}}/analyses/{{analysisId}}
 Accept: application/json
 
+### Consulta os achados de uma análise (lista vazia enquanto ela não está Completed)
+GET {{ImageAnalysis.API_HostAddress}}/analyses/{{analysisId}}/findings
+Accept: application/json
+
 ###
