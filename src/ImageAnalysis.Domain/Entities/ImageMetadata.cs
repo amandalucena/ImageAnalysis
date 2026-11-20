@@ -1,4 +1,5 @@
 using ImageAnalysis.Domain.Entities.Common;
+using ImageAnalysis.Domain.ValueObjects;
 
 namespace ImageAnalysis.Domain.Entities;
 
@@ -13,28 +14,22 @@ public class ImageMetadata : BaseEntity
     // Chave relativa no storage (ex.: analysis-{id}/metadata.json), não caminho absoluto.
     public string RawMetadataPath { get; private set; } = null!;
 
-    public int Width { get; private set; }
-    public int Height { get; private set; }
+    public ImageDimensions Dimensions { get; private set; } = null!;
 
     // Construtor para materialização pelo ORM.
     private ImageMetadata()
     {
     }
 
-    internal ImageMetadata(Guid analysisId, string rawMetadataPath, int width, int height)
+    internal ImageMetadata(Guid analysisId, string rawMetadataPath, ImageDimensions dimensions)
     {
         if (string.IsNullOrWhiteSpace(rawMetadataPath))
             throw new ArgumentException("O caminho do metadata.json no storage é obrigatório.", nameof(rawMetadataPath));
 
-        if (width <= 0)
-            throw new ArgumentOutOfRangeException(nameof(width), "A largura da imagem deve ser maior que zero.");
-
-        if (height <= 0)
-            throw new ArgumentOutOfRangeException(nameof(height), "A altura da imagem deve ser maior que zero.");
+        ArgumentNullException.ThrowIfNull(dimensions);
 
         AnalysisId = analysisId;
         RawMetadataPath = rawMetadataPath;
-        Width = width;
-        Height = height;
+        Dimensions = dimensions;
     }
 }

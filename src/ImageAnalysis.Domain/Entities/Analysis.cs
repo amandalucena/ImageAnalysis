@@ -62,14 +62,14 @@ public class Analysis : BaseEntity
         StartedAt = DateTime.UtcNow;
     }
 
-    public ImageMetadata SetMetadata(string rawMetadataPath, int width, int height)
+    public ImageMetadata SetMetadata(string rawMetadataPath, ImageDimensions dimensions)
     {
         EnsureStatus(AnalysisStatus.Processing);
 
         if (Metadata is not null)
             throw new InvalidOperationException("Os metadados desta análise já foram definidos.");
 
-        Metadata = new ImageMetadata(Id, rawMetadataPath, width, height);
+        Metadata = new ImageMetadata(Id, rawMetadataPath, dimensions);
         return Metadata;
     }
 
