@@ -59,5 +59,15 @@ jobs:
           --configuration Release
           --no-build
 
+      # Usado pelos testes de integração do ExifToolMetadataExtractor.
+      - name: Instalar ExifTool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libimage-exiftool-perl
+          exiftool -ver
+
       - name: Test
+        # Sem o ExifTool, os testes que o usam falham em vez de serem ignorados.
+        env:
+          EXIFTOOL_REQUIRED: true
         run: dotnet test --no-build --configuration Release --verbosity normal

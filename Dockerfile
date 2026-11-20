@@ -23,6 +23,12 @@ ENV ASPNETCORE_URLS=http://+:8080 \
     Storage__RootPath=/data/storage
 EXPOSE 8080
 
+# ExifTool para a extração de metadados, executado pelo Worker como processo filho.
+# Pacote do Debian 12 (ExifTool 12.57).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libimage-exiftool-perl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Diretório de object storage local (imagens originais, mapas ELA, heatmaps),
 # montado como volume pelo docker-compose.
 RUN mkdir -p /data/storage && chown -R $APP_UID /data/storage

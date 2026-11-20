@@ -109,6 +109,48 @@ public class LocalImageStorageTests : IDisposable
         Assert.False(await _storage.ExistsAsync($"uploads/{Guid.NewGuid()}/original.jpg"));
     }
 
+    [Fact]
+    public async Task OpenReadAsync_ChaveExistente_DevolveConteudoSomenteLeitura()
+    {
+        byte[] content = [1, 2, 3, 4];
+        var key = $"uploads/{Guid.NewGuid()}/original.jpg";
+        await _storage.SaveAsync(key, new MemoryStream(content));
+
+        await using var stream = await _storage.OpenReadAsync(key);
+        using var copy = new MemoryStream();
+        await stream.CopyToAsync(copy);
+
+        Assert.Equal(content, copy.ToArray());
+        Assert.False(stream.CanWrite);
+    }
+
+    [Fact]
+    public async Task OpenReadAsync_DuasLeiturasSimultaneas_Permite()
+    {
+        var key = $"uploads/{Guid.NewGuid()}/original.jpg";
+        await _storage.SaveAsync(key, new MemoryStream([1, 2, 3]));
+
+        await using var first = await _storage.OpenReadAsync(key);
+        await using var second = await _storage.OpenReadAsync(key);
+
+        Assert.True(first.CanRead && second.CanRead);
+    }
+
+    [Fact]
+    public async Task OpenReadAsync_ChaveInexistente_LancaFileNotFound()
+    {
+        await Assert.ThrowsAsync<FileNotFoundException>(
+            () => _storage.OpenReadAsync($"uploads/{Guid.NewGuid()}/original.jpg"));
+    }
+
+    [Theory]
+    [InlineData("../fora.jpg")]
+    [InlineData("")]
+    public async Task OpenReadAsync_ChaveForaDoStorage_LancaExcecao(string key)
+    {
+        await Assert.ThrowsAsync<ArgumentException>(() => _storage.OpenReadAsync(key));
+    }
+
     private sealed class FailingStream : MemoryStream
     {
         public override Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken) =>

@@ -1,4 +1,6 @@
+using ImageAnalysis.Application.Metadata;
 using ImageAnalysis.Domain.Interfaces;
+using ImageAnalysis.Infrastructure.ExternalTools.ExifTool;
 using ImageAnalysis.Infrastructure.Messaging;
 using ImageAnalysis.Infrastructure.Persistence;
 using ImageAnalysis.Infrastructure.Persistence.Repositories;
@@ -19,7 +21,8 @@ public static class DependencyInjection
         this IServiceCollection services,
         string postgresConnectionString,
         string storageRootPath,
-        string rabbitMqConnectionString)
+        string rabbitMqConnectionString,
+        ExifToolOptions exifToolOptions)
     {
         services.AddDbContext<ImageAnalysisDbContext>(options =>
             options.UseNpgsql(postgresConnectionString));
@@ -34,6 +37,9 @@ public static class DependencyInjection
         services.AddSingleton(new RabbitMqConnectionProvider(rabbitMqConnectionString));
 
         services.AddSingleton<IAnalysisQueue, RabbitMqAnalysisQueue>();
+
+        // Sem estado: cada extração inicia o seu próprio processo do ExifTool.
+        services.AddSingleton<IMetadataExtractor>(new ExifToolMetadataExtractor(exifToolOptions));
 
         return services;
     }

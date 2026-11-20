@@ -22,6 +22,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Imagens de amostra (geradas para o projeto) usadas pelos testes de integração. -->
+    <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\ImageAnalysis.Domain\ImageAnalysis.Domain.csproj" />
     <ProjectReference Include="..\..\src\ImageAnalysis.Application\ImageAnalysis.Application.csproj" />
     <ProjectReference Include="..\..\src\ImageAnalysis.Infrastructure\ImageAnalysis.Infrastructure.csproj" />
