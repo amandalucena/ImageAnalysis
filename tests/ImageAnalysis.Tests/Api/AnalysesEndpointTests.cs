@@ -105,9 +105,13 @@ public class AnalysesEndpointTests
         await WaitForStatus(id, "Completed", TimeSpan.FromSeconds(30));
 
         var response = await _client.GetAsync($"/analyses/{id}/findings");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
 
-        var finding = json.RootElement.GetProperty("findings").EnumerateArray().First();
+        var findings = json.RootElement.GetProperty("findings");
+        Assert.NotEqual(0, findings.GetArrayLength());
+
+        var finding = findings.EnumerateArray().First();
         Assert.Equal(
             ["id", "name", "source", "description", "evidences"],
             finding.EnumerateObject().Select(p => p.Name));

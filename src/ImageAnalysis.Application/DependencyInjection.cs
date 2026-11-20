@@ -1,9 +1,9 @@
 using ImageAnalysis.Application.Metadata;
 using ImageAnalysis.Application.UseCases.CreateImageAnalysis;
-using ImageAnalysis.Domain.Interfaces;
 using ImageAnalysis.Application.UseCases.GetAnalysisFindings;
 using ImageAnalysis.Application.UseCases.GetAnalysisStatus;
 using ImageAnalysis.Application.UseCases.ProcessImageAnalysis;
+using ImageAnalysis.Domain.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace ImageAnalysis.Application;

@@ -81,7 +81,7 @@ public class GetAnalysisFindingsTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_OrdenaAchadosPorOrigemENomeEEvidenciasPorNome()
+    public async Task ExecuteAsync_OrdenaAchadosPeloTextoDaOrigemENomeEEvidenciasPorNome()
     {
         var analysis = AddAnalysis();
         analysis.Start();
@@ -95,12 +95,13 @@ public class GetAnalysisFindingsTests
 
         var result = await Execute(analysis.Id);
 
+        // "Ela" vem antes de "Metadata" pelo texto, embora Metadata seja o primeiro valor do enum.
         Assert.Equal(
-            ["metadata.ai-generator", "metadata.inconsistent-dates", "ela.region"],
+            ["ela.region", "metadata.ai-generator", "metadata.inconsistent-dates"],
             result!.Findings.Select(f => f.Name));
         Assert.Equal(
             ["create-date-mismatch", "modified-after-capture"],
-            result.Findings[1].Evidences.Select(e => e.Name));
+            result.Findings[2].Evidences.Select(e => e.Name));
     }
 
     private static void Complete(Analysis analysis) =>
