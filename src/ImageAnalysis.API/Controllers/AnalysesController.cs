@@ -1,6 +1,7 @@
 using ImageAnalysis.API.Contracts;
 using ImageAnalysis.API.Filters;
 using ImageAnalysis.Application.UseCases.CreateImageAnalysis;
+using ImageAnalysis.Application.UseCases.GetAnalysisFindings;
 using ImageAnalysis.Application.UseCases.GetAnalysisStatus;
 using Microsoft.AspNetCore.Mvc;
 
@@ -58,6 +59,21 @@ public class AnalysesController : ControllerBase
         CancellationToken cancellationToken)
     {
         var result = await getAnalysisStatus.ExecuteAsync(new GetAnalysisStatusQuery(id), cancellationToken);
+
+        return result is null ? NotFound() : Ok(result);
+    }
+
+    // A lista fica vazia enquanto a análise não termina (e também se ela falhar);
+    // o status na resposta indica se ela já é definitiva.
+    [HttpGet("{id:guid}/findings")]
+    [ProducesResponseType<AnalysisFindingsResult>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetFindings(
+        Guid id,
+        [FromServices] GetAnalysisFindings getAnalysisFindings,
+        CancellationToken cancellationToken)
+    {
+        var result = await getAnalysisFindings.ExecuteAsync(new GetAnalysisFindingsQuery(id), cancellationToken);
 
         return result is null ? NotFound() : Ok(result);
     }
