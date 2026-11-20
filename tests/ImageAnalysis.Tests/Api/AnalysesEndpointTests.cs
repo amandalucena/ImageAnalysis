@@ -60,11 +60,13 @@ public class AnalysesEndpointTests
         Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(JpegBytes)), status.Sha256);
     }
 
-    // Ponta a ponta: POST → fila → Worker → GET com a análise concluída.
+    // Ponta a ponta: POST → fila → Worker → GET com a análise concluída. O Worker roda o
+    // ExifTool real, então a imagem precisa ser um JPEG legível, e não só a assinatura.
     [Fact]
     public async Task Post_AnaliseCriada_WorkerProcessaAteCompleted()
     {
-        var id = await CreateAnalysis(Form(JpegBytes, "foto.jpg"));
+        var image = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", "Metadata", "camera.jpg"));
+        var id = await CreateAnalysis(Form(image, "camera.jpg"));
 
         var status = await WaitForStatus(id, "Completed", TimeSpan.FromSeconds(30));
 
