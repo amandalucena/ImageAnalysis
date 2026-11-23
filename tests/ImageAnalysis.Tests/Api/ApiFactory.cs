@@ -4,13 +4,15 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Testcontainers.PostgreSql;
 using Testcontainers.RabbitMq;
+using Testcontainers.Redis;
 
 namespace ImageAnalysis.Tests.Api;
 
 /// <summary>
-/// Sobe a API em memória, com o Worker, um PostgreSQL e um RabbitMQ descartáveis
+/// Sobe a API em memória, com o Worker, um PostgreSQL, um RabbitMQ e um Redis descartáveis
 /// (Testcontainers) e uma pasta temporária como storage, compartilhada entre os testes da
-/// coleção "Api". Requer Docker.
+/// coleção "Api". Requer Docker. O Redis próprio evita que o Worker use o localhost:6379 do
+/// appsettings.Development.json, que é o Redis de desenvolvimento do docker-compose.
 /// </summary>
 public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
@@ -22,11 +24,15 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         .WithImage("rabbitmq:3-management")
         .Build();
 
+    private readonly RedisContainer _redisContainer = new RedisBuilder()
+        .WithImage("redis:7")
+        .Build();
+
     public string StorageRootPath { get; } = Path.Combine(Path.GetTempPath(), $"image-analysis-api-tests-{Guid.NewGuid()}");
 
     public async Task InitializeAsync()
     {
-        await Task.WhenAll(_container.StartAsync(), _rabbitMqContainer.StartAsync());
+        await Task.WhenAll(_container.StartAsync(), _rabbitMqContainer.StartAsync(), _redisContainer.StartAsync());
 
         var options = new DbContextOptionsBuilder<ImageAnalysisDbContext>()
             .UseNpgsql(_container.GetConnectionString())
@@ -42,6 +48,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     {
         builder.UseSetting("ConnectionStrings:Postgres", _container.GetConnectionString());
         builder.UseSetting("ConnectionStrings:RabbitMq", _rabbitMqContainer.GetConnectionString());
+        builder.UseSetting("ConnectionStrings:Redis", _redisContainer.GetConnectionString());
         builder.UseSetting("Storage:RootPath", StorageRootPath);
     }
 
@@ -50,6 +57,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         await DisposeAsync();
         await _container.DisposeAsync();
         await _rabbitMqContainer.DisposeAsync();
+        await _redisContainer.DisposeAsync();
 
         if (Directory.Exists(StorageRootPath))
             Directory.Delete(StorageRootPath, recursive: true);
