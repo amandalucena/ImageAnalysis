@@ -18,6 +18,7 @@ public class ProcessImageAnalysisTests
 
     private readonly FakeAnalysisRepository _repository = new();
     private readonly FakeImageStorage _storage = new();
+    private readonly FakeAnalysisCache _cache = new();
     private readonly FakeMetadataExtractor _extractor = new() { Json = MetadataJson };
 
     // Dump mínimo com as dimensões que o SetMetadata exige.
@@ -402,6 +403,119 @@ public class ProcessImageAnalysisTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => Execute(analysis.Id));
     }
 
+    [Fact]
+    public async Task ExecuteAsync_AnaliseConcluida_RemoveDoCacheAsEntradasDaAnalise()
+    {
+        var analysis = AddAnalysis();
+        var otherAnalysisId = Guid.NewGuid();
+        await _cache.SetAsync(analysis.Id, "ela", "mapa");
+        await _cache.SetAsync(analysis.Id, "regions", "regioes");
+        await _cache.SetAsync(otherAnalysisId, "ela", "outra");
+
+        var outcome = await Execute(analysis.Id);
+
+        Assert.Equal(ProcessImageAnalysisOutcome.Completed, outcome);
+        Assert.Equal([analysis.Id], _cache.RemoveAllCalls.Select(c => c.AnalysisId));
+        Assert.Equal([(otherAnalysisId, "ela")], _cache.Entries.Keys);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AnaliseFalha_RemoveDoCacheAsEntradasDaAnalise()
+    {
+        var analysis = AddAnalysis();
+        await _cache.SetAsync(analysis.Id, "ela", "mapa");
+        _extractor.Exception = new MetadataExtractionException(MetadataExtractionFailure.ToolFailed, "exiftool falhou");
+
+        var outcome = await Execute(analysis.Id);
+
+        Assert.Equal(ProcessImageAnalysisOutcome.Failed, outcome);
+        Assert.Equal([analysis.Id], _cache.RemoveAllCalls.Select(c => c.AnalysisId));
+        Assert.Empty(_cache.Entries);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_LimpezaDoCacheNaoPodeSerCancelada()
+    {
+        var analysis = AddAnalysis();
+        using var stopping = new CancellationTokenSource();
+
+        await CreateUseCase()
+            .ExecuteAsync(new ProcessImageAnalysisCommand(analysis.Id), stopping.Token);
+
+        Assert.False(Assert.Single(_cache.RemoveAllCalls).CancellationToken.CanBeCanceled);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_FalhaNaLimpezaDoCache_NaoAlteraOResultado()
+    {
+        var analysis = AddAnalysis();
+        _cache.RemoveAllException = new InvalidOperationException("Redis indisponível.");
+
+        var outcome = await Execute(analysis.Id);
+
+        Assert.Equal(ProcessImageAnalysisOutcome.Completed, outcome);
+        Assert.Equal(AnalysisStatus.Completed, analysis.Status);
+        Assert.Null(analysis.Failure);
+        Assert.Single(_cache.RemoveAllCalls);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AnaliseInexistente_NaoLimpaOCache()
+    {
+        await Execute(Guid.NewGuid());
+
+        Assert.Empty(_cache.RemoveAllCalls);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AnaliseEmProcessamento_NaoLimpaOCacheDaOutraExecucao()
+    {
+        var analysis = AddAnalysis();
+        analysis.Start();
+        await _cache.SetAsync(analysis.Id, "ela", "mapa");
+
+        await Execute(analysis.Id);
+
+        Assert.Empty(_cache.RemoveAllCalls);
+        Assert.Single(_cache.Entries);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ConflitoAoIniciar_NaoLimpaOCache()
+    {
+        var analysis = AddAnalysis();
+        _repository.UpdateException = new ConcurrencyConflictException(analysis.Id);
+
+        await Execute(analysis.Id);
+
+        Assert.Empty(_cache.RemoveAllCalls);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CanceladoPeloHost_NaoLimpaOCache()
+    {
+        var analysis = AddAnalysis();
+        using var stopping = new CancellationTokenSource();
+        stopping.Cancel();
+        _extractor.Exception = new OperationCanceledException(stopping.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            CreateUseCase().ExecuteAsync(new ProcessImageAnalysisCommand(analysis.Id), stopping.Token));
+
+        Assert.Empty(_cache.RemoveAllCalls);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ErroAoGravar_NaoLimpaOCache()
+    {
+        var analysis = AddAnalysis();
+        _repository.UpdateException = new InvalidOperationException("Banco indisponível.");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Execute(analysis.Id));
+
+        Assert.Empty(_cache.RemoveAllCalls);
+    }
+
     private Analysis AddAnalysis()
     {
         var image = new ImageFile("foto.jpg", $"uploads/{Guid.NewGuid()}/original.jpg", 1_024, new string('a', 64), "image/jpeg");
@@ -416,7 +530,7 @@ public class ProcessImageAnalysisTests
         File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "MetadataJson", name));
 
     private ProcessImageAnalysis CreateUseCase() =>
-        new(_repository, new MetadataAnalyzer(_storage, _extractor), _storage, NullLogger<ProcessImageAnalysis>.Instance);
+        new(_repository, new MetadataAnalyzer(_storage, _extractor), _storage, _cache, NullLogger<ProcessImageAnalysis>.Instance);
 
     private Task<ProcessImageAnalysisOutcome> Execute(Guid analysisId) =>
         CreateUseCase().ExecuteAsync(new ProcessImageAnalysisCommand(analysisId));
