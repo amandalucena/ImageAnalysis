@@ -9,7 +9,6 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.1" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
     <PackageReference Include="RabbitMQ.Client" Version="7.0.0" />
-    <PackageReference Include="StackExchange.Redis" Version="2.13.23" />
   </ItemGroup>
 
   <ItemGroup>

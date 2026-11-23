@@ -160,7 +160,6 @@ public class ProcessImageAnalysisPersistenceTests
             new AnalysisRepository(dbContext),
             new MetadataAnalyzer(_storage, _extractor),
             _storage,
-            new FakeAnalysisCache(),
             NullLogger<ProcessImageAnalysis>.Instance);
 
         return await useCase.ExecuteAsync(new ProcessImageAnalysisCommand(analysisId));

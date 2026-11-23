@@ -46,7 +46,7 @@ var exifToolOptions = new ExifToolOptions
 };
 
 builder.Services.AddApplication();
-builder.Services.AddInfrastructure(postgresConnectionString, redisConnectionString, storageRootPath, rabbitMqConnectionString, exifToolOptions);
+builder.Services.AddInfrastructure(postgresConnectionString, storageRootPath, rabbitMqConnectionString, exifToolOptions);
 
 // O Worker roda em segundo plano no mesmo processo da API.
 builder.Services.AddAnalysisWorker();
