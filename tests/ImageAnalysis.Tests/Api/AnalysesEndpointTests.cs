@@ -7,6 +7,10 @@ using ImageAnalysis.API.Contracts;
 using ImageAnalysis.Application.Metadata;
 using ImageAnalysis.Application.UseCases.GetAnalysisFindings;
 using ImageAnalysis.Application.UseCases.GetAnalysisStatus;
+using ImageAnalysis.Domain.Entities;
+using ImageAnalysis.Domain.Interfaces;
+using ImageAnalysis.Domain.ValueObjects;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace ImageAnalysis.Tests.Api;
 
@@ -275,6 +279,50 @@ public class AnalysesEndpointTests
         Assert.Equal(JsonValueKind.Array, json.RootElement.GetProperty("findings").ValueKind);
     }
 
+    // Ponta a ponta com o Redis real: entradas gravadas antes do processamento somem quando o
+    // Worker conclui. A análise é criada pelos serviços, e não pelo POST, para que as entradas
+    // existam antes de a mensagem chegar ao Worker; pelo POST, o id só é conhecido depois da
+    // publicação e o Worker poderia terminar antes da gravação.
+    [Fact]
+    public async Task Worker_AnaliseConcluida_RemoveDoCacheAsEntradasDaAnalise()
+    {
+        var content = ReadImageFixture("camera.jpg");
+        var image = new ImageFile(
+            "camera.jpg",
+            $"uploads/{Guid.NewGuid()}/original.jpg",
+            content.Length,
+            Convert.ToHexStringLower(SHA256.HashData(content)),
+            "image/jpeg");
+        var analysis = new Analysis(null, image);
+
+        var cache = _factory.Services.GetRequiredService<IAnalysisCache>();
+        var otherAnalysisId = Guid.NewGuid();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            await using (var stream = new MemoryStream(content, writable: false))
+                await scope.ServiceProvider.GetRequiredService<IImageStorage>().SaveAsync(image.StoragePath, stream);
+
+            await scope.ServiceProvider.GetRequiredService<IAnalysisRepository>().AddAsync(analysis);
+        }
+
+        await cache.SetAsync(analysis.Id, "ela", new[] { 1, 2, 3 });
+        await cache.SetAsync(analysis.Id, "regions", "regioes");
+        await cache.SetAsync(otherAnalysisId, "ela", "outra");
+
+        await _factory.Services.GetRequiredService<IAnalysisQueue>().PublishAsync(analysis.Id);
+        await WaitForStatus(analysis.Id, "Completed", TimeSpan.FromSeconds(30));
+
+        // A limpeza roda logo depois da gravação final, que é o que o GET enxerga como Completed.
+        await WaitUntil(async () => await cache.GetAsync<string>(analysis.Id, "regions") is null, TimeSpan.FromSeconds(5));
+
+        Assert.Null(await cache.GetAsync<int[]>(analysis.Id, "ela"));
+        Assert.Null(await cache.GetAsync<string>(analysis.Id, "regions"));
+        Assert.Equal("outra", await cache.GetAsync<string>(otherAnalysisId, "ela"));
+
+        await cache.RemoveAllAsync(otherAnalysisId);
+    }
+
     private static byte[] ReadImageFixture(string name) =>
         File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", "Metadata", name));
 
@@ -330,6 +378,14 @@ public class AnalysesEndpointTests
 
             await Task.Delay(TimeSpan.FromMilliseconds(200));
         }
+    }
+
+    private static async Task WaitUntil(Func<Task<bool>> condition, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+
+        while (!await condition() && DateTime.UtcNow < deadline)
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
     }
 
     private static void AssertProblem(HttpResponseMessage response, HttpStatusCode expected)

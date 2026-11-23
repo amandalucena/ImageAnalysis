@@ -18,13 +18,14 @@ namespace ImageAnalysis.Application.UseCases.ProcessImageAnalysis;
 /// grava o dump bruto em analysis-{id}/metadata.json e registra o ImageMetadata e os achados
 /// com suas evidências. A consolidação
 /// dos achados num resultado ainda não existe (#43–#45), então a análise conclui com um
-/// resultado Inconclusive.
+/// resultado Inconclusive. Ao fim, remove do IAnalysisCache os dados intermediários da análise.
 /// </summary>
 public class ProcessImageAnalysis
 {
     private readonly IAnalysisRepository _analysisRepository;
     private readonly MetadataAnalyzer _metadataAnalyzer;
     private readonly IImageStorage _storage;
+    private readonly IAnalysisCache _cache;
     private readonly ILogger<ProcessImageAnalysis> _logger;
 
     // MetadataAnalyzer concreto, e não IImageAnalyzer: só o AnalyzeMetadataAsync devolve
@@ -33,11 +34,13 @@ public class ProcessImageAnalysis
         IAnalysisRepository analysisRepository,
         MetadataAnalyzer metadataAnalyzer,
         IImageStorage storage,
+        IAnalysisCache cache,
         ILogger<ProcessImageAnalysis> logger)
     {
         _analysisRepository = analysisRepository;
         _metadataAnalyzer = metadataAnalyzer;
         _storage = storage;
+        _cache = cache;
         _logger = logger;
     }
 
@@ -75,7 +78,29 @@ public class ProcessImageAnalysis
         // mensagem seria ignorada.
         await _analysisRepository.UpdateAsync(analysis, CancellationToken.None);
 
+        await RemoveCachedEntriesAsync(analysis.Id);
+
         return outcome;
+    }
+
+    // Só depois da gravação final, com a análise já em Completed ou Failed: nos caminhos NotFound
+    // e Skipped não se chega aqui, porque um Skipped pode ser outra execução ainda usando o cache
+    // (ex.: reentrega da mensagem). No cancelamento pelo host e numa falha da gravação final a
+    // análise fica em Processing e as entradas ficam para o TTL de segurança.
+    private async Task RemoveCachedEntriesAsync(Guid analysisId)
+    {
+        try
+        {
+            // CancellationToken.None pelo mesmo motivo da gravação final: o resultado já está
+            // gravado, e o encerramento do host não deve interromper a limpeza no meio.
+            await _cache.RemoveAllAsync(analysisId, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            // O resultado já está gravado e não depende do cache; o TTL de segurança remove as
+            // entradas que sobrarem.
+            _logger.LogWarning(ex, "Não foi possível remover do cache os dados intermediários da análise {AnalysisId}.", analysisId);
+        }
     }
 
     private async Task<ProcessImageAnalysisOutcome> RunAsync(Analysis analysis, CancellationToken cancellationToken)

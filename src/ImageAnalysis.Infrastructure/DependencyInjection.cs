@@ -1,5 +1,6 @@
 using ImageAnalysis.Application.Metadata;
 using ImageAnalysis.Domain.Interfaces;
+using ImageAnalysis.Infrastructure.Caching;
 using ImageAnalysis.Infrastructure.ExternalTools.ExifTool;
 using ImageAnalysis.Infrastructure.Messaging;
 using ImageAnalysis.Infrastructure.Persistence;
@@ -20,6 +21,7 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
         string postgresConnectionString,
+        string redisConnectionString,
         string storageRootPath,
         string rabbitMqConnectionString,
         ExifToolOptions exifToolOptions)
@@ -37,6 +39,12 @@ public static class DependencyInjection
         services.AddSingleton(new RabbitMqConnectionProvider(rabbitMqConnectionString));
 
         services.AddSingleton<IAnalysisQueue, RabbitMqAnalysisQueue>();
+
+        // Conexão Redis compartilhada, aberta na primeira utilização. Registrada por factory para
+        // que o container a descarte no encerramento do host.
+        services.AddSingleton(_ => new RedisConnectionProvider(redisConnectionString));
+
+        services.AddSingleton<IAnalysisCache, RedisAnalysisCache>();
 
         // Sem estado: cada extração inicia o seu próprio processo do ExifTool.
         services.AddSingleton<IMetadataExtractor>(new ExifToolMetadataExtractor(exifToolOptions));
