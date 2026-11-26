@@ -1,5 +1,6 @@
 using ImageAnalysis.Application.Exceptions;
 using System.Text;
+using ImageAnalysis.Application.Jpeg;
 using ImageAnalysis.Application.Metadata;
 using ImageAnalysis.Application.Storage;
 using ImageAnalysis.Application.UseCases.ProcessImageAnalysis;
@@ -211,7 +212,7 @@ public class ProcessImageAnalysisTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_DumpDeCameraSemSinais_ConcluiSemAchados()
+    public async Task ExecuteAsync_DumpDeCameraSemSinais_ConcluiSemAchadosDeMetadados()
     {
         var analysis = AddAnalysis();
         _extractor.Json = ReadMetadataJson("phone-gps-thumbnail.json");
@@ -219,7 +220,56 @@ public class ProcessImageAnalysisTests
         var outcome = await Execute(analysis.Id);
 
         Assert.Equal(ProcessImageAnalysisOutcome.Completed, outcome);
-        Assert.Empty(analysis.Findings);
+        Assert.DoesNotContain(analysis.Findings, f => f.SourceFindingType == SourceFindingType.Metadata);
+    }
+
+    // --- Estrutura JPEG (22.6) ---
+
+    [Fact]
+    public async Task ExecuteAsync_Jpeg_GravaTambemOsAchadosDaEstruturaJpeg()
+    {
+        // ImageBytes é um JPEG malformado: o APP0 declara um comprimento que passa do fim.
+        var analysis = AddAnalysis();
+
+        await Execute(analysis.Id);
+
+        Assert.Equal(AnalysisStatus.Completed, analysis.Status);
+        var jpegFindings = analysis.Findings.Where(f => f.SourceFindingType == SourceFindingType.JpegStructure).ToArray();
+        Assert.Contains(jpegFindings, f => f.Name == JpegStructureFindingNames.Truncated);
+        Assert.Contains(jpegFindings, f => f.Name == JpegStructureFindingNames.MalformedStructure);
+        Assert.All(jpegFindings, f => Assert.NotEmpty(f.Evidences));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_JpegReal_GravaOPerfilDeCodificacao()
+    {
+        var analysis = AddAnalysis(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", "Metadata", "camera.jpg")));
+
+        await Execute(analysis.Id);
+
+        var finding = Assert.Single(analysis.Findings, f => f.SourceFindingType == SourceFindingType.JpegStructure);
+        Assert.Equal(JpegStructureFindingNames.EncodingProfile, finding.Name);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ImagemPng_NaoGravaAchadosDaEstruturaJpeg()
+    {
+        var analysis = AddAnalysis(bytes: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], mimeType: "image/png");
+
+        var outcome = await Execute(analysis.Id);
+
+        Assert.Equal(ProcessImageAnalysisOutcome.Completed, outcome);
+        Assert.DoesNotContain(analysis.Findings, f => f.SourceFindingType == SourceFindingType.JpegStructure);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ResultadoCitaAsDuasAnalises()
+    {
+        var analysis = AddAnalysis();
+
+        await Execute(analysis.Id);
+
+        Assert.Contains("metadados e da estrutura JPEG", analysis.Result!.Summary);
     }
 
     [Fact]
@@ -516,12 +566,12 @@ public class ProcessImageAnalysisTests
         Assert.Empty(_cache.RemoveAllCalls);
     }
 
-    private Analysis AddAnalysis()
+    private Analysis AddAnalysis(byte[]? bytes = null, string mimeType = "image/jpeg")
     {
-        var image = new ImageFile("foto.jpg", $"uploads/{Guid.NewGuid()}/original.jpg", 1_024, new string('a', 64), "image/jpeg");
+        var image = new ImageFile("foto.jpg", $"uploads/{Guid.NewGuid()}/original.jpg", 1_024, new string('a', 64), mimeType);
         var analysis = new Analysis(null, image);
         _repository.Analyses.Add(analysis);
-        _storage.Files[image.StoragePath] = ImageBytes;
+        _storage.Files[image.StoragePath] = bytes ?? ImageBytes;
         return analysis;
     }
 
@@ -530,7 +580,13 @@ public class ProcessImageAnalysisTests
         File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "MetadataJson", name));
 
     private ProcessImageAnalysis CreateUseCase() =>
-        new(_repository, new MetadataAnalyzer(_storage, _extractor), _storage, _cache, NullLogger<ProcessImageAnalysis>.Instance);
+        new(
+            _repository,
+            new MetadataAnalyzer(_storage, _extractor),
+            new JpegStructureAnalyzer(_storage),
+            _storage,
+            _cache,
+            NullLogger<ProcessImageAnalysis>.Instance);
 
     private Task<ProcessImageAnalysisOutcome> Execute(Guid analysisId) =>
         CreateUseCase().ExecuteAsync(new ProcessImageAnalysisCommand(analysisId));

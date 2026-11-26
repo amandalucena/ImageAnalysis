@@ -1,3 +1,4 @@
+using ImageAnalysis.Application.Jpeg;
 using ImageAnalysis.Application.Metadata;
 using ImageAnalysis.Application.UseCases.CreateImageAnalysis;
 using ImageAnalysis.Application.UseCases.GetAnalysisFindings;
@@ -26,6 +27,9 @@ public static class DependencyInjection
         // As duas formas resolvem a mesma instância dentro do escopo.
         services.AddScoped<MetadataAnalyzer>();
         services.AddScoped<IImageAnalyzer>(sp => sp.GetRequiredService<MetadataAnalyzer>());
+
+        services.AddScoped<JpegStructureAnalyzer>();
+        services.AddScoped<IImageAnalyzer>(sp => sp.GetRequiredService<JpegStructureAnalyzer>());
 
         return services;
     }

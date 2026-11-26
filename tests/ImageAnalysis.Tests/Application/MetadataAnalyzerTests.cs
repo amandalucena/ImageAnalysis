@@ -231,7 +231,7 @@ public class MetadataAnalyzerTests
         var concrete = scope.ServiceProvider.GetRequiredService<MetadataAnalyzer>();
         var analyzers = scope.ServiceProvider.GetServices<IImageAnalyzer>();
 
-        Assert.Same(concrete, Assert.Single(analyzers));
+        Assert.Same(concrete, Assert.Single(analyzers.OfType<MetadataAnalyzer>()));
     }
 
     private static string Fixture(string name) =>

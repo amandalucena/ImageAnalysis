@@ -4,10 +4,12 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
 using ImageAnalysis.API.Contracts;
+using ImageAnalysis.Application.Jpeg;
 using ImageAnalysis.Application.Metadata;
 using ImageAnalysis.Application.UseCases.GetAnalysisFindings;
 using ImageAnalysis.Application.UseCases.GetAnalysisStatus;
 using ImageAnalysis.Domain.Entities;
+using ImageAnalysis.Domain.Enums;
 using ImageAnalysis.Domain.Interfaces;
 using ImageAnalysis.Domain.ValueObjects;
 using Microsoft.Extensions.DependencyInjection;
@@ -129,9 +131,10 @@ public class AnalysesEndpointTests
         Assert.Equal(JsonValueKind.String, evidence.GetProperty("direction").ValueKind);
     }
 
-    // Contraponto: uma foto de câmera sem sinais de edição conclui sem achados.
+    // Contraponto: uma foto de câmera sem sinais de edição conclui sem achados que apoiem
+    // manipulação; da estrutura JPEG sai só o perfil de codificação, que é informativo.
     [Fact]
-    public async Task Post_FotoDeCamera_WorkerConcluiSemAchados()
+    public async Task Post_FotoDeCamera_WorkerConcluiSemAchadosDeManipulacao()
     {
         var id = await CreateAnalysis(Form(ReadImageFixture("camera.jpg"), "camera.jpg"));
         await WaitForStatus(id, "Completed", TimeSpan.FromSeconds(30));
@@ -139,7 +142,9 @@ public class AnalysesEndpointTests
         var findings = await GetFindings(id);
 
         Assert.Equal("Completed", findings.Status);
-        Assert.Empty(findings.Findings);
+        var finding = Assert.Single(findings.Findings);
+        Assert.Equal(JpegStructureFindingNames.EncodingProfile, finding.Name);
+        Assert.Equal(nameof(SourceFindingType.JpegStructure), finding.Source);
     }
 
     [Fact]
