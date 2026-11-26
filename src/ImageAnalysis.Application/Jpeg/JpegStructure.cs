@@ -1,7 +1,7 @@
 namespace ImageAnalysis.Application.Jpeg;
 
 /// <summary>
-/// Estrutura do arquivo JPEG como lida, sem interpretação: a avaliação do que é anômalo fica
+/// Estrutura do arquivo JPEG como lida, sem julgamento: a avaliação do que é anômalo fica
 /// nas regras do JpegStructureAnalyzer (22.4) e no CompressionAnalyzer (#23). Fica em memória;
 /// não é persistida.
 /// </summary>
@@ -25,13 +25,27 @@ public sealed record JpegStructure
 
     public IReadOnlyList<JpegReadIssue> Issues { get; }
 
+    // Conteúdo dos demais segmentos, na ordem do arquivo (22.3).
+    public IReadOnlyList<HuffmanTable> HuffmanTables { get; }
+    public IReadOnlyList<ushort> RestartIntervals { get; }
+    public IReadOnlyList<JpegScanHeader> Scans { get; }
+    public IReadOnlyList<JpegApplicationSegment> ApplicationSegments { get; }
+    public IReadOnlyList<JpegComment> Comments { get; }
+
+    // Os parâmetros opcionais são preenchidos pelo JpegSegmentDecoder; o leitor de segmentos
+    // (22.2) não os informa.
     public JpegStructure(
         IEnumerable<JpegSegment> segments,
         IEnumerable<JpegFrameHeader> frames,
         IEnumerable<QuantizationTable> quantizationTables,
         long? endOfImageOffset,
         long trailingDataLength,
-        IEnumerable<JpegReadIssue> issues)
+        IEnumerable<JpegReadIssue> issues,
+        IEnumerable<HuffmanTable>? huffmanTables = null,
+        IEnumerable<ushort>? restartIntervals = null,
+        IEnumerable<JpegScanHeader>? scans = null,
+        IEnumerable<JpegApplicationSegment>? applicationSegments = null,
+        IEnumerable<JpegComment>? comments = null)
     {
         if (endOfImageOffset < 0)
             throw new ArgumentOutOfRangeException(nameof(endOfImageOffset), "A posição do EOI não pode ser negativa.");
@@ -48,6 +62,11 @@ public sealed record JpegStructure
         EndOfImageOffset = endOfImageOffset;
         TrailingDataLength = trailingDataLength;
         Issues = CopyWithoutNulls(issues, nameof(issues));
+        HuffmanTables = CopyWithoutNulls(huffmanTables ?? [], nameof(huffmanTables));
+        RestartIntervals = (restartIntervals ?? []).ToArray();
+        Scans = CopyWithoutNulls(scans ?? [], nameof(scans));
+        ApplicationSegments = CopyWithoutNulls(applicationSegments ?? [], nameof(applicationSegments));
+        Comments = CopyWithoutNulls(comments ?? [], nameof(comments));
     }
 
     public bool HasEndOfImage => EndOfImageOffset is not null;
@@ -126,5 +145,10 @@ public enum JpegReadIssueKind
     // Bytes entre segmentos que não começam um marcador. A leitura recomeça no próximo marcador
     // conhecido, que pode estar dentro de outro segmento (ex.: a miniatura do EXIF): o que vem
     // depois deste problema é menos confiável.
-    UnexpectedData = 4
+    UnexpectedData = 4,
+
+    // O conteúdo de um segmento não bate com o comprimento declarado ou tem campos inválidos
+    // (ex.: DQT com tabela incompleta, SOF com comprimento diferente de 8 + 3 × componentes).
+    // O decoder lê o que der desse segmento e segue para o próximo.
+    MalformedSegment = 5
 }

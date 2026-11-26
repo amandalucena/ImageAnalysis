@@ -278,6 +278,86 @@ public class JpegStructureModelTests
         Assert.Throws<ArgumentException>(() => new JpegReadIssue(JpegReadIssueKind.UnknownMarker, 0, " "));
     }
 
+    // ---- HuffmanTable ----
+
+    [Fact]
+    public void HuffmanTable_SimbolosDiferentesDaSomaDasContagens_LancaExcecao()
+    {
+        byte[] counts = [0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        Assert.Throws<ArgumentException>(() => new HuffmanTable(HuffmanTableClass.Dc, 0, counts, [1]));
+    }
+
+    [Fact]
+    public void HuffmanTable_QuantidadeDeContagensDiferenteDe16_LancaExcecao()
+    {
+        Assert.Throws<ArgumentException>(() => new HuffmanTable(HuffmanTableClass.Ac, 0, new byte[15], []));
+    }
+
+    [Fact]
+    public void HuffmanTable_MesmosValores_SaoIguais()
+    {
+        byte[] counts = [0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        var a = new HuffmanTable(HuffmanTableClass.Ac, 1, counts, [1, 2]);
+        var b = new HuffmanTable(HuffmanTableClass.Ac, 1, counts.ToArray(), [1, 2]);
+
+        Assert.Equal(a, b);
+        Assert.Equal(a.GetHashCode(), b.GetHashCode());
+        Assert.NotEqual(a, new HuffmanTable(HuffmanTableClass.Ac, 1, counts, [1, 3]));
+    }
+
+    // ---- JpegScanHeader ----
+
+    [Fact]
+    public void JpegScanHeader_MesmosValores_SaoIguais()
+    {
+        JpegScanHeader Scan() => new(10, [new JpegScanComponent(1, 0, 0)], 0, 63, 0, 0);
+
+        Assert.Equal(Scan(), Scan());
+        Assert.Equal(Scan().GetHashCode(), Scan().GetHashCode());
+    }
+
+    [Fact]
+    public void JpegScanHeader_AproximacaoAcimaDe4Bits_LancaExcecao()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new JpegScanHeader(0, [], 0, 63, 16, 0));
+    }
+
+    // ---- JpegApplicationSegment ----
+
+    [Fact]
+    public void JpegApplicationSegment_MarcadorQueNaoEhApp_LancaExcecao()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new JpegApplicationSegment(JpegMarker.Com, 0, 10, JpegApplicationKind.Unknown, null));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")] // 65
+    public void JpegApplicationSegment_IdentificadorVazioOuLongo_LancaExcecao(string identifier)
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new JpegApplicationSegment(JpegMarker.App1, 0, 10, JpegApplicationKind.Unknown, identifier));
+    }
+
+    // ---- JpegComment ----
+
+    [Fact]
+    public void JpegComment_TextoAcimaDoLimite_LancaExcecao()
+    {
+        Assert.Throws<ArgumentException>(() => new JpegComment(0, new string('x', JpegComment.MaxTextLength + 1), 5000));
+    }
+
+    [Theory]
+    [InlineData(1024, false)]
+    [InlineData(1025, true)]
+    public void JpegComment_IsTruncated_SegueOTamanhoNoArquivo(int dataLength, bool truncated)
+    {
+        Assert.Equal(truncated, new JpegComment(0, "x", dataLength).IsTruncated);
+    }
+
     private static JpegFrameComponent Component(byte id) => new(id, 1, 1, 0);
 
     private static JpegFrameHeader Frame(JpegMarker marker) =>
