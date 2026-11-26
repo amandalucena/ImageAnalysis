@@ -17,13 +17,14 @@ public static class JpegSegmentReader
         var issues = new List<JpegReadIssue>();
         long? endOfImageOffset = null;
         long trailingDataLength = 0;
+        byte[] trailingDataPrefix = [];
 
         if (data.Length < 2 || data[0] != MarkerPrefix || data[1] != (byte)JpegMarker.Soi)
         {
             issues.Add(new JpegReadIssue(
                 JpegReadIssueKind.MissingStartOfImage, 0, "O arquivo não começa com o marcador SOI (0xFFD8)."));
 
-            return Build(segments, issues, endOfImageOffset, trailingDataLength);
+            return Build(segments, issues, endOfImageOffset, trailingDataLength, trailingDataPrefix);
         }
 
         segments.Add(new JpegSegment((byte)JpegMarker.Soi, 0, 0));
@@ -82,6 +83,8 @@ public static class JpegSegmentReader
                 {
                     endOfImageOffset = markerOffset;
                     trailingDataLength = data.Length - position;
+                    trailingDataPrefix = data.Slice(
+                        position, Math.Min(JpegStructure.TrailingDataPrefixLength, data.Length - position)).ToArray();
                     break;
                 }
 
@@ -153,7 +156,7 @@ public static class JpegSegmentReader
             }
         }
 
-        return Build(segments, issues, endOfImageOffset, trailingDataLength);
+        return Build(segments, issues, endOfImageOffset, trailingDataLength, trailingDataPrefix);
     }
 
     // Registra os bytes que não começam um marcador e recomeça no próximo marcador conhecido.
@@ -229,6 +232,10 @@ public static class JpegSegmentReader
     private static string FormatMarker(byte code) => $"0xFF{code:X2}";
 
     private static JpegStructure Build(
-        List<JpegSegment> segments, List<JpegReadIssue> issues, long? endOfImageOffset, long trailingDataLength) =>
-        new(segments, [], [], endOfImageOffset, trailingDataLength, issues);
+        List<JpegSegment> segments,
+        List<JpegReadIssue> issues,
+        long? endOfImageOffset,
+        long trailingDataLength,
+        byte[] trailingDataPrefix) =>
+        new(segments, [], [], endOfImageOffset, trailingDataLength, issues, trailingDataPrefix: trailingDataPrefix);
 }

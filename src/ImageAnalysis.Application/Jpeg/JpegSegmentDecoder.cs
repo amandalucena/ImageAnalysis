@@ -91,7 +91,8 @@ public static class JpegSegmentDecoder
             context.RestartIntervals,
             context.Scans,
             context.ApplicationSegments,
-            context.Comments);
+            context.Comments,
+            read.TrailingDataPrefix);
     }
 
     // ---- DQT ----

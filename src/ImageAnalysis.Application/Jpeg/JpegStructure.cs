@@ -23,6 +23,13 @@ public sealed record JpegStructure
     // imagem do MPF e alguns editores anexam dados próprios.
     public long TrailingDataLength { get; }
 
+    // Primeiros bytes depois do EOI (até TrailingDataPrefixLength), para que as regras
+    // reconheçam o que foi anexado (ex.: FFD8 de uma segunda imagem, "ftyp" de um vídeo) sem
+    // guardar o conteúdo inteiro.
+    public IReadOnlyList<byte> TrailingDataPrefix { get; }
+
+    public const int TrailingDataPrefixLength = 16;
+
     public IReadOnlyList<JpegReadIssue> Issues { get; }
 
     // Conteúdo dos demais segmentos, na ordem do arquivo (22.3).
@@ -45,7 +52,8 @@ public sealed record JpegStructure
         IEnumerable<ushort>? restartIntervals = null,
         IEnumerable<JpegScanHeader>? scans = null,
         IEnumerable<JpegApplicationSegment>? applicationSegments = null,
-        IEnumerable<JpegComment>? comments = null)
+        IEnumerable<JpegComment>? comments = null,
+        IEnumerable<byte>? trailingDataPrefix = null)
     {
         if (endOfImageOffset < 0)
             throw new ArgumentOutOfRangeException(nameof(endOfImageOffset), "A posição do EOI não pode ser negativa.");
@@ -67,6 +75,14 @@ public sealed record JpegStructure
         Scans = CopyWithoutNulls(scans ?? [], nameof(scans));
         ApplicationSegments = CopyWithoutNulls(applicationSegments ?? [], nameof(applicationSegments));
         Comments = CopyWithoutNulls(comments ?? [], nameof(comments));
+
+        var prefix = (trailingDataPrefix ?? []).ToArray();
+        if (prefix.Length > Math.Min(TrailingDataPrefixLength, trailingDataLength))
+            throw new ArgumentException(
+                $"O início dos dados após o EOI tem no máximo {TrailingDataPrefixLength} bytes e não passa do tamanho deles.",
+                nameof(trailingDataPrefix));
+
+        TrailingDataPrefix = prefix;
     }
 
     public bool HasEndOfImage => EndOfImageOffset is not null;
