@@ -241,6 +241,32 @@ public class JpegStructureModelTests
     }
 
     [Fact]
+    public void JpegReadIssue_ComQuantidadeEMarcador_MantemValores()
+    {
+        var issue = new JpegReadIssue(
+            JpegReadIssueKind.UnexpectedData, 500, "5 bytes ignorados antes do marcador 0xFFDB.", length: 5, markerCode: 0xDB);
+
+        Assert.Equal(5, issue.Length);
+        Assert.Equal((byte)0xDB, issue.MarkerCode);
+    }
+
+    [Fact]
+    public void JpegReadIssue_SemQuantidadeEMarcador_FicamNulos()
+    {
+        var issue = new JpegReadIssue(JpegReadIssueKind.TruncatedFile, 0, "x");
+
+        Assert.Null(issue.Length);
+        Assert.Null(issue.MarkerCode);
+    }
+
+    [Fact]
+    public void JpegReadIssue_QuantidadeNegativa_LancaExcecao()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new JpegReadIssue(JpegReadIssueKind.UnexpectedData, 0, "x", length: -1));
+    }
+
+    [Fact]
     public void JpegReadIssue_TipoIndefinido_LancaExcecao()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new JpegReadIssue((JpegReadIssueKind)99, 0, "x"));

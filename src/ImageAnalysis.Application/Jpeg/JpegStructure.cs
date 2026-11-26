@@ -77,7 +77,16 @@ public sealed record JpegReadIssue
 
     public string Description { get; }
 
-    public JpegReadIssue(JpegReadIssueKind kind, long offset, string description)
+    // Quantidade de bytes afetados, quando se aplica: em UnexpectedData, os bytes ignorados
+    // até o próximo marcador. Guardado à parte da descrição para que as regras (22.4) usem o valor.
+    public long? Length { get; }
+
+    // Marcador envolvido, quando se aplica: o código desconhecido (UnknownMarker), o segmento
+    // com comprimento inválido (InvalidSegmentLength) ou onde a leitura recomeçou (UnexpectedData).
+    public byte? MarkerCode { get; }
+
+    public JpegReadIssue(
+        JpegReadIssueKind kind, long offset, string description, long? length = null, byte? markerCode = null)
     {
         if (!Enum.IsDefined(kind))
             throw new ArgumentOutOfRangeException(nameof(kind), "Tipo de problema inválido.");
@@ -88,9 +97,14 @@ public sealed record JpegReadIssue
         if (string.IsNullOrWhiteSpace(description))
             throw new ArgumentException("A descrição do problema é obrigatória.", nameof(description));
 
+        if (length < 0)
+            throw new ArgumentOutOfRangeException(nameof(length), "A quantidade de bytes não pode ser negativa.");
+
         Kind = kind;
         Offset = offset;
         Description = description;
+        Length = length;
+        MarkerCode = markerCode;
     }
 }
 
@@ -102,9 +116,15 @@ public enum JpegReadIssueKind
     // Código fora dos marcadores da T.81.
     UnknownMarker = 1,
 
-    // Campo de comprimento menor que 2 ou que passa do fim do arquivo.
+    // Campo de comprimento menor que 2 ou que passa do fim do arquivo. Pelos bytes, um arquivo
+    // cortado e um comprimento corrompido não se distinguem; a leitura para nos dois casos.
     InvalidSegmentLength = 2,
 
-    // O arquivo acaba no meio de um marcador ou segmento.
-    TruncatedFile = 3
+    // O arquivo acaba no meio de um marcador, de um campo de comprimento ou dos dados comprimidos.
+    TruncatedFile = 3,
+
+    // Bytes entre segmentos que não começam um marcador. A leitura recomeça no próximo marcador
+    // conhecido, que pode estar dentro de outro segmento (ex.: a miniatura do EXIF): o que vem
+    // depois deste problema é menos confiável.
+    UnexpectedData = 4
 }

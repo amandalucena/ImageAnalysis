@@ -8,7 +8,8 @@ public sealed record JpegSegment
 {
     public byte MarkerCode { get; }
 
-    // Posição do byte 0xFF que abre o marcador.
+    // Posição do byte 0xFF que abre o marcador. Com bytes 0xFF de preenchimento antes, é a do
+    // último deles: o código do marcador está sempre em Offset + 1.
     public long Offset { get; }
 
     // Valor do campo de comprimento, que inclui os próprios 2 bytes. 0 nos marcadores sem
