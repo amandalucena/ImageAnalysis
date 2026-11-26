@@ -1,4 +1,5 @@
 using ImageAnalysis.Application.Exceptions;
+using ImageAnalysis.Application.Jpeg;
 using ImageAnalysis.Application.Metadata;
 using ImageAnalysis.Application.Storage;
 using ImageAnalysis.Application.UseCases.ProcessImageAnalysis;
@@ -19,7 +20,9 @@ namespace ImageAnalysis.Tests.Infrastructure.Persistence;
 [Collection("Postgres")]
 public class ProcessImageAnalysisPersistenceTests
 {
-    private static readonly byte[] ImageBytes = [0xFF, 0xD8, 0xFF, 0xE0, 0xFF, 0xD9];
+    // JPEG real: os achados da estrutura JPEG são o perfil de codificação, sem anomalias.
+    private static readonly byte[] ImageBytes =
+        File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", "Metadata", "camera.jpg"));
 
     private readonly PostgresFixture _fixture;
     private readonly FakeImageStorage _storage = new();
@@ -54,13 +57,27 @@ public class ProcessImageAnalysisPersistenceTests
         // O banco não guarda a ordem dos achados: a comparação é por nome.
         var expected = MetadataFindingRules.Evaluate(MetadataNormalizer.Normalize(new RawMetadata(json))).Findings;
         Assert.True(expected.Count > 1, "O fixture deve gerar mais de um achado.");
-        Assert.Equal(expected.Select(f => f.Name).Order(), loaded.Findings.Select(f => f.Name).Order());
+        Assert.Equal(
+            expected.Select(f => f.Name).Order(),
+            loaded.Findings.Where(f => f.SourceFindingType == SourceFindingType.Metadata).Select(f => f.Name).Order());
 
         foreach (var expectedFinding in expected)
         {
             var finding = Assert.Single(loaded.Findings, f => f.Name == expectedFinding.Name);
             Assert.Equal(expectedFinding.Description, finding.Description);
             Assert.Equal(SourceFindingType.Metadata, finding.SourceFindingType);
+            Assert.Equal(EvidenceKeys(expectedFinding.Evidences), EvidenceKeys(finding.Evidences));
+        }
+
+        // Os achados da estrutura JPEG da mesma imagem também são persistidos, com a origem própria.
+        var expectedJpeg = JpegStructureFindingRules.Evaluate(JpegStructureParser.Parse(ImageBytes)).Findings;
+        var loadedJpeg = loaded.Findings.Where(f => f.SourceFindingType == SourceFindingType.JpegStructure).ToArray();
+        Assert.NotEmpty(expectedJpeg);
+        Assert.Equal(expectedJpeg.Select(f => f.Name).Order(), loadedJpeg.Select(f => f.Name).Order());
+
+        foreach (var expectedFinding in expectedJpeg)
+        {
+            var finding = Assert.Single(loadedJpeg, f => f.Name == expectedFinding.Name);
             Assert.Equal(EvidenceKeys(expectedFinding.Evidences), EvidenceKeys(finding.Evidences));
         }
 
@@ -159,6 +176,7 @@ public class ProcessImageAnalysisPersistenceTests
         var useCase = new ProcessImageAnalysis(
             new AnalysisRepository(dbContext),
             new MetadataAnalyzer(_storage, _extractor),
+            new JpegStructureAnalyzer(_storage),
             _storage,
             new FakeAnalysisCache(),
             NullLogger<ProcessImageAnalysis>.Instance);

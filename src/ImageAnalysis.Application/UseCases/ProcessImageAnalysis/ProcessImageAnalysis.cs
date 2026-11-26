@@ -1,5 +1,6 @@
 using System.Text;
 using ImageAnalysis.Application.Exceptions;
+using ImageAnalysis.Application.Jpeg;
 using ImageAnalysis.Application.Metadata;
 using ImageAnalysis.Application.Pipeline;
 using ImageAnalysis.Application.Storage;
@@ -14,9 +15,10 @@ namespace ImageAnalysis.Application.UseCases.ProcessImageAnalysis;
 
 /// <summary>
 /// Processa uma análise recebida da fila, conduzindo o ciclo de vida
-/// Pending → Processing → Completed, ou Failed em caso de erro. Executa o MetadataAnalyzer,
-/// grava o dump bruto em analysis-{id}/metadata.json e registra o ImageMetadata e os achados
-/// com suas evidências. A consolidação
+/// Pending → Processing → Completed, ou Failed em caso de erro. Executa o MetadataAnalyzer e o
+/// JpegStructureAnalyzer em sequência, grava o dump bruto em analysis-{id}/metadata.json e
+/// registra o ImageMetadata e os achados com suas evidências. A execução em paralelo de vários
+/// analisadores é escopo da #48. A consolidação
 /// dos achados num resultado ainda não existe (#43–#45), então a análise conclui com um
 /// resultado Inconclusive. Ao fim, remove do IAnalysisCache os dados intermediários da análise.
 /// </summary>
@@ -24,6 +26,7 @@ public class ProcessImageAnalysis
 {
     private readonly IAnalysisRepository _analysisRepository;
     private readonly MetadataAnalyzer _metadataAnalyzer;
+    private readonly JpegStructureAnalyzer _jpegStructureAnalyzer;
     private readonly IImageStorage _storage;
     private readonly IAnalysisCache _cache;
     private readonly ILogger<ProcessImageAnalysis> _logger;
@@ -33,12 +36,14 @@ public class ProcessImageAnalysis
     public ProcessImageAnalysis(
         IAnalysisRepository analysisRepository,
         MetadataAnalyzer metadataAnalyzer,
+        JpegStructureAnalyzer jpegStructureAnalyzer,
         IImageStorage storage,
         IAnalysisCache cache,
         ILogger<ProcessImageAnalysis> logger)
     {
         _analysisRepository = analysisRepository;
         _metadataAnalyzer = metadataAnalyzer;
+        _jpegStructureAnalyzer = jpegStructureAnalyzer;
         _storage = storage;
         _cache = cache;
         _logger = logger;
@@ -107,8 +112,9 @@ public class ProcessImageAnalysis
     {
         try
         {
-            var metadata = await _metadataAnalyzer.AnalyzeMetadataAsync(
-                new AnalyzerContext(analysis.Id, analysis.Image), cancellationToken);
+            var context = new AnalyzerContext(analysis.Id, analysis.Image);
+
+            var metadata = await _metadataAnalyzer.AnalyzeMetadataAsync(context, cancellationToken);
 
             // Sem dimensões o ExifTool leu o arquivo, mas não a estrutura da imagem (ex.: JPEG
             // malformado). A checagem vem antes do storage para não deixar um metadata.json órfão.
@@ -126,17 +132,22 @@ public class ProcessImageAnalysis
                 return ProcessImageAnalysisOutcome.Failed;
             }
 
+            // Antes do storage pelo mesmo motivo da checagem acima: uma falha na leitura da imagem
+            // aqui não deixa um metadata.json órfão. Para imagens que não são JPEG, o resultado é vazio.
+            var jpegStructure = await _jpegStructureAnalyzer.AnalyzeAsync(context, cancellationToken);
+
             await SaveMetadataAsync(analysis, metadata.Raw, dimensions, cancellationToken);
 
             // Último passo antes do Complete: o Domain não remove achados, então uma falha depois
             // deste ponto gravaria uma análise Failed com achados. Nada que possa falhar deve
-            // entrar entre esta linha e o Complete.
+            // entrar entre estas linhas e o Complete.
             AnalyzerResultApplier.Apply(analysis, _metadataAnalyzer.Source, metadata.Result);
+            AnalyzerResultApplier.Apply(analysis, _jpegStructureAnalyzer.Source, jpegStructure);
 
             analysis.Complete(
                 AnalysisResultStatus.Inconclusive,
                 ConfidenceLevel.Low,
-                "A análise de metadados foi executada, mas os achados ainda não são consolidados num resultado.",
+                "As análises de metadados e da estrutura JPEG foram executadas, mas os achados ainda não são consolidados num resultado.",
                 "Esta versão do sistema ainda não consolida as evidências; o resultado não avalia a imagem.");
 
             return ProcessImageAnalysisOutcome.Completed;
